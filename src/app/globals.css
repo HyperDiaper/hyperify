@@ -1,0 +1,164 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== ROOT ACCENT CONFIG (Customizable App Accent) ===== */
+:root {
+  --accent-start: #a3e635; /* Volt Lime */
+  --accent-end: #0d9488;   /* Teal */
+  --accent-glow-rgb: 163, 230, 53; /* Volt Lime RGB */
+}
+
+/* ===== BASE STYLES ===== */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    @apply bg-dark-950 text-gray-100 font-sans antialiased;
+    min-height: 100vh;
+  }
+
+  /* Custom scrollbar for dark mode */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-dark-950;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-dark-800 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-dark-700;
+  }
+
+  /* Remove number input spinners */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+/* ===== COMPONENT STYLES ===== */
+@layer components {
+  /* Glassmorphism card */
+  .glass-card {
+    @apply bg-dark-900/60 backdrop-blur-xl border border-white/[0.04] rounded-2xl;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.01),
+      0 8px 32px rgba(0, 0, 0, 0.6);
+  }
+
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300;
+  }
+
+  .glass-card-hover:hover {
+    @apply border-white/[0.08] bg-dark-900/80;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.03),
+      0 12px 40px rgba(0, 0, 0, 0.7);
+    transform: translateY(-2px);
+  }
+
+  /* Customizable Gradient Text */
+  .gradient-text-primary {
+    background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-gradient-primary {
+    background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+  }
+
+
+  /* Dynamic Gradient border effect */
+  .gradient-border {
+    position: relative;
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(var(--accent-glow-rgb), 0.35), rgba(var(--accent-glow-rgb), 0.05));
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Primary Customizable Gradient button */
+  .btn-gradient {
+    @apply relative overflow-hidden rounded-xl px-6 py-3 font-bold text-black transition-all duration-300;
+    background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+    box-shadow: 0 4px 16px rgba(var(--accent-glow-rgb), 0.15);
+  }
+
+  .btn-gradient:hover {
+    transform: translateY(-1.5px);
+    box-shadow: 0 8px 24px rgba(var(--accent-glow-rgb), 0.3);
+    opacity: 0.95;
+  }
+
+  .btn-gradient:active {
+    transform: translateY(0);
+  }
+
+  /* Secondary button */
+  .btn-secondary {
+    @apply rounded-xl px-6 py-3 font-semibold text-gray-300 bg-dark-800/80 border border-white/[0.05] transition-all duration-300;
+  }
+
+  .btn-secondary:hover {
+    @apply text-white border-white/[0.1] bg-dark-700/80;
+  }
+
+  /* Input field */
+  .input-dark {
+    @apply w-full bg-dark-800/50 border border-white/[0.04] rounded-xl px-4 py-3 text-gray-100 placeholder-dark-500 focus:outline-none transition-all duration-200;
+  }
+  
+  .input-dark:focus {
+    @apply border-white/[0.12];
+    box-shadow: 0 0 0 1px rgba(var(--accent-glow-rgb), 0.4);
+  }
+
+  /* Navigation active state */
+  .nav-active {
+    @apply relative text-white;
+  }
+
+  .nav-active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--accent-start), var(--accent-end));
+  }
+}

@@ -148,3 +148,54 @@ export async function saveCompletionAction(
     );
   })();
 }
+
+export async function getTodayCompletionsAction(dateStr: string): Promise<Record<string, boolean>> {
+  const userId = await getUserIdFromSession();
+
+  try {
+    const rows = db.prepare(
+      'SELECT habitId, completed FROM completions WHERE userId = ? AND date = ?'
+    ).all(userId, dateStr) as any[];
+
+    const map: Record<string, boolean> = {};
+    rows.forEach((row) => {
+      map[row.habitId] = row.completed === 1;
+    });
+    return map;
+  } catch (err) {
+    console.error('Error fetching today completions:', err);
+    return {};
+  }
+}
+
+export async function getAllCompletionsAction(): Promise<Record<string, Completion[]>> {
+  const userId = await getUserIdFromSession();
+
+  try {
+    const rows = db.prepare(
+      'SELECT habitId, date, completed, value, duration, timestamp FROM completions WHERE userId = ?'
+    ).all(userId) as any[];
+
+    const map: Record<string, Completion[]> = {};
+    rows.forEach((row) => {
+      if (!map[row.habitId]) {
+        map[row.habitId] = [];
+      }
+      map[row.habitId].push({
+        date: row.date,
+        completed: row.completed === 1,
+        value: row.value !== null ? row.value : undefined,
+        duration: row.duration !== null ? row.duration : undefined,
+        timestamp: {
+          seconds: 0,
+          nanoseconds: 0,
+          toDate: () => new Date(row.timestamp),
+        } as any,
+      });
+    });
+    return map;
+  } catch (err) {
+    console.error('Error fetching all completions:', err);
+    return {};
+  }
+}

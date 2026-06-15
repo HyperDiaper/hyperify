@@ -191,7 +191,7 @@ export default function SettingsPage() {
                   </h3>
                   <p className="text-sm text-dark-500 mt-1">{user.email}</p>
                   <p className="text-[10px] text-dark-600 font-bold uppercase tracking-wider mt-3">
-                    Firebase Authentication Active
+                    Local SQLite Database Active
                   </p>
                 </div>
 

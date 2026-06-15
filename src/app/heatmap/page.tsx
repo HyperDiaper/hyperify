@@ -4,8 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useHabitsContext } from '@/context/HabitContext';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { getAllCompletionsAction } from '@/app/actions/completions';
 import { Completion } from '@/types';
 import Sidebar from '@/components/layout/Sidebar';
 import BottomNav from '@/components/layout/BottomNav';
@@ -29,7 +28,7 @@ export default function GlobalHeatmapPage() {
     }
   }, [user, authLoading, router]);
 
-  // Subscribe to completions for all habits
+  // Fetch completions for all habits
   useEffect(() => {
     if (!user || habits.length === 0) {
       setCompletionsByHabit({});
@@ -37,31 +36,22 @@ export default function GlobalHeatmapPage() {
       return;
     }
 
-    setLoadingCompletions(true);
-    const unsubscribes = habits.map((habit) => {
-      const ref = collection(db, 'users', user.uid, 'habits', habit.id, 'completions');
-      return onSnapshot(
-        ref,
-        (snap) => {
-          const list: Completion[] = [];
-          snap.forEach((doc) => {
-            list.push(doc.data() as Completion);
-          });
-          setCompletionsByHabit((prev) => ({
-            ...prev,
-            [habit.id]: list,
-          }));
-          setLoadingCompletions(false);
-        },
-        (err) => {
-          console.error(`Error loading completions for habit ${habit.id}:`, err);
-        }
-      );
-    });
-
-    return () => {
-      unsubscribes.forEach((unsub) => unsub());
+    const loadAllCompletions = async () => {
+      try {
+        setLoadingCompletions(true);
+        const data = await getAllCompletionsAction();
+        setCompletionsByHabit(data);
+      } catch (err) {
+        console.error('Error loading all completions:', err);
+      } finally {
+        setLoadingCompletions(false);
+      }
     };
+
+    loadAllCompletions();
+
+    window.addEventListener('database-update', loadAllCompletions);
+    return () => window.removeEventListener('database-update', loadAllCompletions);
   }, [user, habits]);
 
   // Merge completions across all habits

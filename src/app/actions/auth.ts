@@ -2,8 +2,7 @@
 
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
-import { db } from '@/lib/sqlite';
-import { DEFAULT_CATEGORIES } from '@/lib/db';
+import { db, DEFAULT_CATEGORIES } from '@/lib/sqlite';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'hyperify-local-secret-key-32-chars-long-or-more';
 

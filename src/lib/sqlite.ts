@@ -17,6 +17,15 @@ if (process.env.NODE_ENV !== 'production') {
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
 
+import { Category } from '@/types';
+
+export const DEFAULT_CATEGORIES: Category[] = [
+  { id: 'health', name: 'Health', color: 'emerald', icon: 'Heart', order: 1 },
+  { id: 'work', name: 'Work', color: 'violet', icon: 'Briefcase', order: 2 },
+  { id: 'mind', name: 'Mind', color: 'cyan', icon: 'Brain', order: 3 },
+  { id: 'fitness', name: 'Fitness', color: 'orange', icon: 'Dumbbell', order: 4 },
+];
+
 // Initialize schema (tables and indexes)
 export function initDatabase() {
   db.exec(`

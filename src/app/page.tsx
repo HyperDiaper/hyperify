@@ -4,8 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useHabitsContext } from '@/context/HabitContext';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { getTodayCompletionsAction } from '@/app/actions/completions';
 import { formatDate } from '@/lib/utils';
 import Sidebar from '@/components/layout/Sidebar';
 import BottomNav from '@/components/layout/BottomNav';
@@ -62,19 +61,19 @@ export default function DashboardPage() {
       return;
     }
 
-    const unsubscribes = habits.map((habit) => {
-      const docRef = doc(db, 'users', user.uid, 'habits', habit.id, 'completions', todayStr);
-      return onSnapshot(docRef, (docSnap) => {
-        setTodayCompletions((prev) => ({
-          ...prev,
-          [habit.id]: docSnap.exists() && !!docSnap.data()?.completed,
-        }));
-      }, (err) => {
-        console.error(`Error listening to today's completion for habit ${habit.id}:`, err);
-      });
-    });
+    const loadTodayCompletions = async () => {
+      try {
+        const comps = await getTodayCompletionsAction(todayStr);
+        setTodayCompletions(comps);
+      } catch (err) {
+        console.error(`Error loading today's completions:`, err);
+      }
+    };
 
-    return () => unsubscribes.forEach((unsub) => unsub());
+    loadTodayCompletions();
+
+    window.addEventListener('database-update', loadTodayCompletions);
+    return () => window.removeEventListener('database-update', loadTodayCompletions);
   }, [user, habits, todayStr]);
 
   // Aggregate stats

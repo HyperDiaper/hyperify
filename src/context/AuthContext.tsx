@@ -1,17 +1,21 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, onAuthStateChanged } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 import {
-  signInWithGoogle as realSignInWithGoogle,
-  signInWithEmail as realSignInWithEmail,
-  signUpWithEmail as realSignUpWithEmail,
-  signOut as realSignOut,
-} from '@/lib/auth';
+  getCurrentUserAction,
+  signInAction,
+  signUpAction,
+  signOutAction,
+} from '@/app/actions/auth';
 
 interface AuthContextType {
-  user: any | null; // Allow mock user or Firebase User
+  user: {
+    uid: string;
+    email: string | null;
+    displayName: string | null;
+    photoURL: string | null;
+    createdAt: string;
+  } | null;
   loading: boolean;
   signInWithGoogle: () => Promise<any>;
   signInWithEmail: (email: string, password: string) => Promise<any>;
@@ -21,113 +25,105 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Check if we are running in mock mode
-const isMockMode =
-  typeof window !== 'undefined' &&
-  (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
-    process.env.NEXT_PUBLIC_FIREBASE_API_KEY === 'placeholder');
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Load active session on mount
   useEffect(() => {
-    if (isMockMode) {
-      // Load mock user from localStorage
-      const stored = localStorage.getItem('mock-user');
-      if (stored) {
-        try {
-          setUser(JSON.parse(stored));
-        } catch {
-          setUser(null);
-        }
+    async function loadUser() {
+      try {
+        const currentUser = await getCurrentUserAction();
+        setUser(currentUser);
+      } catch (err) {
+        console.error('Failed to load user session:', err);
+        setUser(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-      return;
     }
-
-    // Real Firebase auth listener
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
+    loadUser();
   }, []);
 
-  // Mock implementation of Auth functions
-  const mockSignInWithGoogle = async () => {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    const mockUser = {
-      uid: 'mock-google-user-id',
-      email: 'alex.hacker@example.com',
-      displayName: 'Alex Hacker',
-      photoURL: null,
-    };
-    localStorage.setItem('mock-user', JSON.stringify(mockUser));
-    setUser(mockUser);
-    return mockUser;
-  };
+  const signInWithGoogle = async () => {
+    // For a fully local setup, we simulate Google Sign-in by logging in
+    // as a local developer profile in the SQLite database.
+    try {
+      setLoading(true);
+      const email = 'alex.hacker@example.com';
+      const password = 'SuperSecretLocalPassword123!';
+      const displayName = 'Alex Hacker';
 
-  const mockSignInWithEmail = async (email: string, password: string) => {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    // Check if user exists in mock database
-    const usersStr = localStorage.getItem('mock-users-db') || '[]';
-    const users = JSON.parse(usersStr) as any[];
-    const found = users.find((u) => u.email === email && u.password === password);
-
-    if (!found) {
-      throw new Error('Invalid email or password (Mock Mode)');
+      let loggedUser;
+      try {
+        loggedUser = await signInAction(email, password);
+      } catch {
+        // If user doesn't exist, sign up
+        loggedUser = await signUpAction(email, password, displayName);
+      }
+      
+      setUser(loggedUser);
+      // Dispatch database-update event to trigger reloads of data
+      window.dispatchEvent(new Event('database-update'));
+      return loggedUser;
+    } catch (err) {
+      console.error('Local Google Sign-In mock failed:', err);
+      throw err;
+    } finally {
+      setLoading(false);
     }
-
-    const loggedUser = {
-      uid: found.uid,
-      email: found.email,
-      displayName: found.displayName,
-      photoURL: null,
-    };
-    localStorage.setItem('mock-user', JSON.stringify(loggedUser));
-    setUser(loggedUser);
-    return loggedUser;
   };
 
-  const mockSignUpWithEmail = async (email: string, password: string, displayName: string) => {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    const usersStr = localStorage.getItem('mock-users-db') || '[]';
-    const users = JSON.parse(usersStr) as any[];
-
-    if (users.some((u) => u.email === email)) {
-      throw new Error('Email already in use (Mock Mode)');
+  const signInWithEmail = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      const loggedUser = await signInAction(email, password);
+      setUser(loggedUser);
+      window.dispatchEvent(new Event('database-update'));
+      return loggedUser;
+    } catch (err) {
+      console.error('Sign-in failed:', err);
+      throw err;
+    } finally {
+      setLoading(false);
     }
-
-    const newUid = `mock-user-${Date.now()}`;
-    const newUser = { uid: newUid, email, password, displayName };
-    users.push(newUser);
-    localStorage.setItem('mock-users-db', JSON.stringify(users));
-
-    const loggedUser = {
-      uid: newUid,
-      email,
-      displayName,
-      photoURL: null,
-    };
-    localStorage.setItem('mock-user', JSON.stringify(loggedUser));
-    setUser(loggedUser);
-    return loggedUser;
   };
 
-  const mockSignOut = async () => {
-    localStorage.removeItem('mock-user');
-    setUser(null);
+  const signUpWithEmail = async (email: string, password: string, displayName: string) => {
+    setLoading(true);
+    try {
+      const newUser = await signUpAction(email, password, displayName);
+      setUser(newUser);
+      window.dispatchEvent(new Event('database-update'));
+      return newUser;
+    } catch (err) {
+      console.error('Sign-up failed:', err);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const signOut = async () => {
+    setLoading(true);
+    try {
+      await signOutAction();
+      setUser(null);
+      window.dispatchEvent(new Event('database-update'));
+    } catch (err) {
+      console.error('Sign-out failed:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const value: AuthContextType = {
     user,
     loading,
-    signInWithGoogle: isMockMode ? mockSignInWithGoogle : realSignInWithGoogle,
-    signInWithEmail: isMockMode ? mockSignInWithEmail : realSignInWithEmail,
-    signUpWithEmail: isMockMode ? mockSignUpWithEmail : realSignUpWithEmail,
-    signOut: isMockMode ? mockSignOut : realSignOut,
+    signInWithGoogle,
+    signInWithEmail,
+    signUpWithEmail,
+    signOut,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

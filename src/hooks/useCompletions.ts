@@ -1,10 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { Completion, HabitType } from '@/types';
-import { saveCompletion, isMockMode } from '@/lib/db';
+import {
+  getCompletionsAction,
+  saveCompletionAction,
+} from '@/app/actions/completions';
+
+// Helper to convert ISO string to Firestore-like Timestamp
+function toMockTimestamp(isoString: string) {
+  const date = new Date(isoString);
+  return {
+    seconds: Math.floor(date.getTime() / 1000),
+    nanoseconds: (date.getTime() % 1000) * 1e6,
+    toDate: () => date,
+    toString: () => isoString,
+  };
+}
 
 export function useCompletions(
   userId: string | null | undefined,
@@ -25,55 +37,33 @@ export function useCompletions(
       return;
     }
 
-    if (isMockMode) {
-      const loadCompletions = () => {
-        const stored = localStorage.getItem(`mock-completions-${userId}-${habitId}`) || '[]';
-        try {
-          const list = JSON.parse(stored) as Completion[];
-          const map: Record<string, Completion> = {};
-          list.forEach((c) => {
-            map[c.date] = c;
-          });
-          setCompletions(list);
-          setCompletionsMap(map);
-        } catch {
-          setCompletions([]);
-          setCompletionsMap({});
-        }
-        setLoading(false);
-      };
-
-      loadCompletions();
-
-      window.addEventListener('mock-db-update', loadCompletions);
-      return () => window.removeEventListener('mock-db-update', loadCompletions);
-    }
-
-    setLoading(true);
-    const completionsRef = collection(db, 'users', userId, 'habits', habitId, 'completions');
-
-    const unsubscribe = onSnapshot(
-      completionsRef,
-      (snapshot) => {
-        const list: Completion[] = [];
+    const loadCompletions = async () => {
+      try {
+        const data = await getCompletionsAction(habitId);
+        const mappedList: Completion[] = data.map((c) => ({
+          ...c,
+          timestamp: toMockTimestamp(c.timestamp) as any,
+        }));
+        
         const map: Record<string, Completion> = {};
-        snapshot.forEach((doc) => {
-          const data = doc.data() as Completion;
-          list.push(data);
-          map[data.date] = data;
+        mappedList.forEach((c) => {
+          map[c.date] = c;
         });
-        setCompletions(list);
+
+        setCompletions(mappedList);
         setCompletionsMap(map);
-        setLoading(false);
-      },
-      (err) => {
-        console.error(`Error fetching completions for habit ${habitId}:`, err);
+      } catch (err: any) {
+        console.error(`Error loading completions for habit ${habitId}:`, err);
         setError(err);
+      } finally {
         setLoading(false);
       }
-    );
+    };
 
-    return () => unsubscribe();
+    loadCompletions();
+
+    window.addEventListener('database-update', loadCompletions);
+    return () => window.removeEventListener('database-update', loadCompletions);
   }, [userId, habitId]);
 
   const toggleCompletion = async (
@@ -85,7 +75,8 @@ export function useCompletions(
     if (!userId || !habitId || !habitType) {
       throw new Error('Missing parameters to toggle completion');
     }
-    return saveCompletion(userId, habitId, habitType, targetValue, dateStr, completed, value, duration);
+    await saveCompletionAction(habitId, habitType, targetValue, dateStr, completed, value, duration);
+    window.dispatchEvent(new Event('database-update'));
   };
 
   return {

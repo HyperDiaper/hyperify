@@ -1,10 +1,24 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { Habit } from '@/types';
-import { addHabit, updateHabit, deleteHabit, isMockMode } from '@/lib/db';
+import {
+  getHabitsAction,
+  addHabitAction,
+  updateHabitAction,
+  deleteHabitAction,
+} from '@/app/actions/habits';
+
+// Helper to convert ISO string to Firestore-like Timestamp
+function toMockTimestamp(isoString: string) {
+  const date = new Date(isoString);
+  return {
+    seconds: Math.floor(date.getTime() / 1000),
+    nanoseconds: (date.getTime() % 1000) * 1e6,
+    toDate: () => date,
+    toString: () => isoString,
+  };
+}
 
 export function useHabits(userId: string | null | undefined) {
   const [habits, setHabits] = useState<Habit[]>([]);
@@ -18,62 +32,52 @@ export function useHabits(userId: string | null | undefined) {
       return;
     }
 
-    if (isMockMode) {
-      const loadHabits = () => {
-        const stored = localStorage.getItem(`mock-habits-${userId}`) || '[]';
-        try {
-          setHabits(JSON.parse(stored));
-        } catch {
-          setHabits([]);
-        }
-        setLoading(false);
-      };
-
-      loadHabits();
-
-      window.addEventListener('mock-db-update', loadHabits);
-      return () => window.removeEventListener('mock-db-update', loadHabits);
-    }
-
-    setLoading(true);
-    const habitsRef = collection(db, 'users', userId, 'habits');
-    const q = query(habitsRef, orderBy('order', 'asc'));
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const habitsList: Habit[] = [];
-        snapshot.forEach((doc) => {
-          habitsList.push(doc.data() as Habit);
-        });
-        setHabits(habitsList);
-        setLoading(false);
-      },
-      (err) => {
-        console.error('Error fetching habits:', err);
+    const loadHabits = async () => {
+      try {
+        const data = await getHabitsAction();
+        const mappedHabits: Habit[] = data.map((h) => ({
+          ...h,
+          createdAt: toMockTimestamp(h.createdAt) as any,
+        }));
+        setHabits(mappedHabits);
+      } catch (err: any) {
+        console.error('Error loading habits from SQLite:', err);
         setError(err);
+      } finally {
         setLoading(false);
       }
-    );
+    };
 
-    return () => unsubscribe();
+    loadHabits();
+
+    window.addEventListener('database-update', loadHabits);
+    return () => window.removeEventListener('database-update', loadHabits);
   }, [userId]);
 
   return {
     habits,
     loading,
     error,
-    addHabit: (habitData: Omit<Habit, 'id' | 'createdAt' | 'archived' | 'order'>) => {
+    addHabit: async (habitData: Omit<Habit, 'id' | 'createdAt' | 'archived' | 'order'>) => {
       if (!userId) throw new Error('User must be signed in to add habits');
-      return addHabit(userId, habitData);
+      const habitId = await addHabitAction(habitData);
+      window.dispatchEvent(new Event('database-update'));
+      return habitId;
     },
-    updateHabit: (habitId: string, updates: Partial<Habit>) => {
+    updateHabit: async (habitId: string, updates: Partial<Habit>) => {
       if (!userId) throw new Error('User must be signed in to update habits');
-      return updateHabit(userId, habitId, updates);
+      // Strip out complex objects if updates contains them
+      const cleanUpdates = { ...updates };
+      if (cleanUpdates.createdAt) {
+        delete cleanUpdates.createdAt;
+      }
+      await updateHabitAction(habitId, cleanUpdates);
+      window.dispatchEvent(new Event('database-update'));
     },
-    deleteHabit: (habitId: string) => {
+    deleteHabit: async (habitId: string) => {
       if (!userId) throw new Error('User must be signed in to delete habits');
-      return deleteHabit(userId, habitId);
+      await deleteHabitAction(habitId);
+      window.dispatchEvent(new Event('database-update'));
     },
   };
 }

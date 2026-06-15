@@ -82,23 +82,33 @@ export async function getUserIdFromSession(): Promise<string> {
     const user = db.prepare('SELECT id FROM users WHERE id = ?').get(sessionData.userId);
     if (!user) {
       const createdAt = new Date().toISOString();
-      db.prepare(
-        'INSERT INTO users (id, email, displayName, passwordHash, createdAt) VALUES (?, ?, ?, ?, ?)'
-      ).run(sessionData.userId, sessionData.email, sessionData.displayName, 'reconstructed_dummy_hash', createdAt);
+      try {
+        db.prepare(
+          'INSERT INTO users (id, email, displayName, passwordHash, createdAt) VALUES (?, ?, ?, ?, ?)'
+        ).run(sessionData.userId, sessionData.email, sessionData.displayName, 'reconstructed_dummy_hash', createdAt);
 
-      // Seed default categories
-      const insertCategory = db.prepare(
-        'INSERT INTO categories (id, userId, name, color, icon, orderIndex) VALUES (?, ?, ?, ?, ?, ?)'
-      );
+        // Seed default categories
+        const insertCategory = db.prepare(
+          'INSERT INTO categories (id, userId, name, color, icon, orderIndex) VALUES (?, ?, ?, ?, ?, ?)'
+        );
 
-      db.transaction(() => {
-        DEFAULT_CATEGORIES.forEach((cat, index) => {
-          insertCategory.run(cat.id + '-' + sessionData.userId, sessionData.userId, cat.name, cat.color, cat.icon || '', index + 1);
-        });
-      })();
+        db.transaction(() => {
+          DEFAULT_CATEGORIES.forEach((cat, index) => {
+            insertCategory.run(cat.id + '-' + sessionData.userId, sessionData.userId, cat.name, cat.color, cat.icon || '', index + 1);
+          });
+        })();
+      } catch (insertErr) {
+        // Double-check if user was created by another request in the meantime
+        const checkAgain = db.prepare('SELECT id FROM users WHERE id = ?').get(sessionData.userId);
+        if (!checkAgain) {
+          console.error('Self-healing database user check failed to reconstruct user:', insertErr);
+          throw insertErr;
+        }
+      }
     }
   } catch (err) {
     console.error('Self-healing database user check failed:', err);
+    throw err;
   }
 
   return sessionData.userId;

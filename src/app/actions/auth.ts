@@ -55,27 +55,36 @@ export async function getCurrentUserAction() {
     // Auto-reconstruct user if database was recycled/reset (e.g. serverless container swap on Netlify)
     if (!user) {
       const createdAt = new Date().toISOString();
-      db.prepare(
-        'INSERT INTO users (id, email, displayName, passwordHash, createdAt) VALUES (?, ?, ?, ?, ?)'
-      ).run(sessionData.userId, sessionData.email, sessionData.displayName, 'reconstructed_dummy_hash', createdAt);
+      try {
+        db.prepare(
+          'INSERT INTO users (id, email, displayName, passwordHash, createdAt) VALUES (?, ?, ?, ?, ?)'
+        ).run(sessionData.userId, sessionData.email, sessionData.displayName, 'reconstructed_dummy_hash', createdAt);
 
-      // Seed default categories
-      const insertCategory = db.prepare(
-        'INSERT INTO categories (id, userId, name, color, icon, orderIndex) VALUES (?, ?, ?, ?, ?, ?)'
-      );
+        // Seed default categories
+        const insertCategory = db.prepare(
+          'INSERT INTO categories (id, userId, name, color, icon, orderIndex) VALUES (?, ?, ?, ?, ?, ?)'
+        );
 
-      db.transaction(() => {
-        DEFAULT_CATEGORIES.forEach((cat, index) => {
-          insertCategory.run(cat.id + '-' + sessionData.userId, sessionData.userId, cat.name, cat.color, cat.icon || '', index + 1);
-        });
-      })();
+        db.transaction(() => {
+          DEFAULT_CATEGORIES.forEach((cat, index) => {
+            insertCategory.run(cat.id + '-' + sessionData.userId, sessionData.userId, cat.name, cat.color, cat.icon || '', index + 1);
+          });
+        })();
 
-      user = {
-        id: sessionData.userId,
-        email: sessionData.email,
-        displayName: sessionData.displayName,
-        createdAt,
-      };
+        user = {
+          id: sessionData.userId,
+          email: sessionData.email,
+          displayName: sessionData.displayName,
+          createdAt,
+        };
+      } catch (insertErr) {
+        console.warn('Concurrent user auto-reconstruction handled:', insertErr);
+        // Double-check if user was created by another request in the meantime
+        user = db.prepare('SELECT id, email, displayName, createdAt FROM users WHERE id = ?').get(sessionData.userId) as any;
+        if (!user) {
+          throw insertErr;
+        }
+      }
     }
 
     return {

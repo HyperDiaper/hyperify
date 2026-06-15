@@ -43,6 +43,15 @@ export async function addHabitAction(
   const maxOrderRow = db.prepare('SELECT MAX(orderIndex) as maxOrder FROM habits WHERE userId = ?').get(userId) as any;
   const nextOrder = (maxOrderRow?.maxOrder || 0) + 1;
 
+  // Validate category existence to prevent foreign key constraint violations (e.g. if category was deleted or database reset)
+  let verifiedCategory: string | null = null;
+  if (habitData.category) {
+    const exists = db.prepare('SELECT id FROM categories WHERE id = ? AND userId = ?').get(habitData.category, userId);
+    if (exists) {
+      verifiedCategory = habitData.category;
+    }
+  }
+
   db.transaction(() => {
     // 1. Insert habit
     db.prepare(
@@ -53,7 +62,7 @@ export async function addHabitAction(
       userId,
       habitData.name,
       habitData.description || '',
-      habitData.category ? habitData.category : null,
+      verifiedCategory,
       habitData.type,
       habitData.target !== undefined ? habitData.target : null,
       habitData.unit || '',
@@ -78,7 +87,10 @@ export async function updateHabitAction(habitId: string, updates: Partial<Habit>
   db.transaction(() => {
     // Fetch current habit
     const current = db.prepare('SELECT * FROM habits WHERE id = ? AND userId = ?').get(habitId, userId) as any;
-    if (!current) throw new Error('Habit not found');
+    if (!current) {
+      console.warn(`Attempted to update non-existent habit: ${habitId}`);
+      return;
+    }
 
     // Build update dynamic query
     const fields: string[] = [];
@@ -94,7 +106,14 @@ export async function updateHabitAction(habitId: string, updates: Partial<Habit>
     }
     if (updates.category !== undefined) {
       fields.push('category = ?');
-      values.push(updates.category ? updates.category : null);
+      let verifiedCategory: string | null = null;
+      if (updates.category) {
+        const exists = db.prepare('SELECT id FROM categories WHERE id = ? AND userId = ?').get(updates.category, userId);
+        if (exists) {
+          verifiedCategory = updates.category;
+        }
+      }
+      values.push(verifiedCategory);
     }
     if (updates.type !== undefined) {
       fields.push('type = ?');

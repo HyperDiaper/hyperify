@@ -65,6 +65,13 @@ export async function saveCompletionAction(
   const userId = await getUserIdFromSession();
   const timestamp = new Date().toISOString();
 
+  // Validate habit existence to prevent foreign key constraint violations (e.g. if database reset)
+  const habitExists = db.prepare('SELECT id FROM habits WHERE id = ? AND userId = ?').get(habitId, userId);
+  if (!habitExists) {
+    console.warn(`Attempted to save completion for non-existent habit: ${habitId}`);
+    return;
+  }
+
   db.transaction(() => {
     // 1. Delete/insert completion row
     if (!completed) {

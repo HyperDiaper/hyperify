@@ -117,16 +117,17 @@ export default function DashboardPage() {
   const filteredGroupedHabits = useMemo(() => {
     // 1. Filter habits
     const filtered = habits.filter(
-      (h) => activeCategoryFilter === 'all' || h.category === activeCategoryFilter
+      (h) => activeCategoryFilter === 'all' || (h.category || '') === activeCategoryFilter
     );
 
     // 2. Group habits by category id
     const groups: Record<string, Habit[]> = {};
     filtered.forEach((h) => {
-      if (!groups[h.category]) {
-        groups[h.category] = [];
+      const catKey = h.category || '';
+      if (!groups[catKey]) {
+        groups[catKey] = [];
       }
-      groups[h.category].push(h);
+      groups[catKey].push(h);
     });
 
     return groups;
@@ -327,6 +328,7 @@ export default function DashboardPage() {
                     gold: 'text-amber-400',
                     purple: 'text-purple-400',
                     indigo: 'text-indigo-400',
+                    gray: 'text-dark-500',
                     lavender: 'text-indigo-300',
                     mint: 'text-emerald-400',
                     pink: 'text-pink-400',
@@ -334,7 +336,7 @@ export default function DashboardPage() {
                     fuchsia: 'text-fuchsia-400',
                   };
 
-                  const textColor = textColors[cat?.color || 'violet'] || 'text-violet-400';
+                  const textColor = textColors[cat?.color || 'gray'] || 'text-dark-500';
 
                   return (
                     <div key={catId} className="space-y-3">
@@ -342,7 +344,7 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-2 px-1 select-none">
                         <Icon className={`w-4 h-4 ${textColor}`} />
                         <h3 className={`text-xs font-black uppercase tracking-wider ${textColor}`}>
-                          {cat?.name || 'General'}
+                          {cat?.name || 'Uncategorized'}
                         </h3>
                         <div className="flex-1 h-px bg-white/[0.03] ml-2" />
                       </div>

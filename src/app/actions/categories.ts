@@ -1,31 +1,8 @@
 'use server';
 
-import { cookies } from 'next/headers';
-import crypto from 'crypto';
-import { db } from '@/lib/sqlite';
+import { db, getUserIdFromSession } from '@/lib/sqlite';
 import { Category } from '@/types';
-
-const SESSION_SECRET = process.env.SESSION_SECRET || 'hyperify-local-secret-key-32-chars-long-or-more';
-
-// Helper to get authenticated userId from session
-async function getUserIdFromSession(): Promise<string> {
-  const cookieStore = await cookies();
-  const session = cookieStore.get('hyperify_session')?.value;
-  if (!session) throw new Error('Unauthorized');
-
-  try {
-    const parts = session.split(':');
-    const iv = Buffer.from(parts.shift() || '', 'hex');
-    const encryptedText = parts.join(':');
-    const key = crypto.scryptSync(SESSION_SECRET, 'salt', 32);
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch {
-    throw new Error('Unauthorized');
-  }
-}
+import crypto from 'crypto';
 
 export async function getCategoriesAction(): Promise<Category[]> {
   const userId = await getUserIdFromSession();

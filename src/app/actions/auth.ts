@@ -2,7 +2,7 @@
 
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
-import { db, DEFAULT_CATEGORIES } from '@/lib/sqlite';
+import { db, DEFAULT_CATEGORIES, decryptSession } from '@/lib/sqlite';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'hyperify-local-secret-key-32-chars-long-or-more';
 
@@ -21,22 +21,6 @@ function encryptSession(data: SessionData): string {
   let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
   encrypted += cipher.final('hex');
   return iv.toString('hex') + ':' + encrypted;
-}
-
-// Helper to decrypt session cookie
-function decryptSession(sessionVal: string): SessionData | null {
-  try {
-    const parts = sessionVal.split(':');
-    const iv = Buffer.from(parts.shift() || '', 'hex');
-    const encryptedText = parts.join(':');
-    const key = crypto.scryptSync(SESSION_SECRET, 'salt', 32);
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return JSON.parse(decrypted) as SessionData;
-  } catch (err) {
-    return null;
-  }
 }
 
 // Hashing helper

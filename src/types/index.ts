@@ -30,7 +30,7 @@ export interface Habit {
   id: string;
   name: string;
   description?: string;
-  category: string;
+  category: string | null;
   type: HabitType;
   target?: number;
   unit?: string;

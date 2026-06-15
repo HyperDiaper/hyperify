@@ -25,7 +25,7 @@ const gradients: { key: GradientKey; style: string }[] = [
 ];
 
 export default function HabitForm({ habit, onClose }: HabitFormProps) {
-  const { addHabit, updateHabit, deleteHabit, categories } = useHabitsContext();
+  const { addHabit, updateHabit, deleteHabit, categories, addCategory } = useHabitsContext();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
@@ -39,19 +39,19 @@ export default function HabitForm({ habit, onClose }: HabitFormProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Set default category on load once categories are loaded
-  useEffect(() => {
-    if (categories.length > 0 && !category && !habit) {
-      setCategory(categories[0].id);
-    }
-  }, [categories, category, habit]);
+  // Inline Category Creator state
+  const [showNewCat, setShowNewCat] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatColor, setNewCatColor] = useState('violet');
+  const [newCatIcon, setNewCatIcon] = useState('Tag');
+  const [newCatLoading, setNewCatLoading] = useState(false);
 
   // Pre-fill form if editing
   useEffect(() => {
     if (habit) {
       setName(habit.name);
       setDescription(habit.description || '');
-      setCategory(habit.category);
+      setCategory(habit.category || '');
       setType(habit.type);
       setSelectedGradient(habit.gradient);
       
@@ -64,14 +64,30 @@ export default function HabitForm({ habit, onClose }: HabitFormProps) {
     }
   }, [habit]);
 
+  const handleCreateCategory = async () => {
+    if (!newCatName.trim()) return;
+    setNewCatLoading(true);
+    try {
+      const newId = await addCategory({
+        name: newCatName.trim(),
+        color: newCatColor,
+        icon: newCatIcon,
+      });
+      setCategory(newId);
+      setNewCatName('');
+      setShowNewCat(false);
+    } catch (err: any) {
+      console.error('Failed to create category:', err);
+      setError(err.message || 'Failed to create category');
+    } finally {
+      setNewCatLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       setError('Habit name is required');
-      return;
-    }
-    if (!category) {
-      setError('Please select a category');
       return;
     }
 
@@ -93,7 +109,7 @@ export default function HabitForm({ habit, onClose }: HabitFormProps) {
       const habitData = {
         name: name.trim(),
         description: description.trim() || undefined,
-        category,
+        category: category || '', // Empty string represents Uncategorized (saved as null in DB)
         type,
         target,
         unit,
@@ -170,35 +186,132 @@ export default function HabitForm({ habit, onClose }: HabitFormProps) {
 
       {/* Category selector */}
       <div className="space-y-2">
-        <label className="text-xs font-bold uppercase tracking-wider text-dark-500">
-          Category
-        </label>
-        {categories.length === 0 ? (
-          <p className="text-xs text-dark-500 italic">No categories available. Please create one in settings.</p>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {categories.map((cat) => {
-              const isSelected = category === cat.id;
-              const Icon = (Icons as any)[cat.icon || 'Tag'] || Icons.Tag;
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => setCategory(cat.id)}
-                  disabled={loading}
-                  className={`py-2 px-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all text-xs font-semibold
-                    ${
-                      isSelected
-                        ? 'bg-dark-800 text-white border-white/[0.12] ring-1 ring-white/[0.04]'
-                        : 'bg-dark-900/40 text-dark-500 border-white/[0.03] hover:border-white/[0.08] hover:text-gray-300'
-                    }
-                  `}
+        <div className="flex justify-between items-center mb-1">
+          <label className="text-xs font-bold uppercase tracking-wider text-dark-500">
+            Category (Optional)
+          </label>
+          <button
+            type="button"
+            onClick={() => setShowNewCat(!showNewCat)}
+            className="text-[10px] font-bold text-accent-lime hover:text-accent-lime/80 transition-colors uppercase tracking-wider flex items-center gap-1"
+          >
+            <Icons.Plus className="w-3 h-3" />
+            New Category
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {/* Uncategorized button */}
+          <button
+            type="button"
+            onClick={() => setCategory('')}
+            disabled={loading}
+            className={`py-2 px-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all text-xs font-semibold
+              ${
+                category === ''
+                  ? 'bg-dark-800 text-white border-white/[0.12] ring-1 ring-white/[0.04]'
+                  : 'bg-dark-900/40 text-dark-500 border-white/[0.03] hover:border-white/[0.08] hover:text-gray-300'
+              }
+            `}
+          >
+            <Icons.Tag className="w-4.5 h-4.5 shrink-0 text-dark-500" />
+            <span className="truncate w-full text-center">None</span>
+          </button>
+
+          {/* User Categories */}
+          {categories.map((cat) => {
+            const isSelected = category === cat.id;
+            const Icon = (Icons as any)[cat.icon || 'Tag'] || Icons.Tag;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setCategory(cat.id)}
+                disabled={loading}
+                className={`py-2 px-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all text-xs font-semibold
+                  ${
+                    isSelected
+                      ? 'bg-dark-800 text-white border-white/[0.12] ring-1 ring-white/[0.04]'
+                      : 'bg-dark-900/40 text-dark-500 border-white/[0.03] hover:border-white/[0.08] hover:text-gray-300'
+                  }
+                `}
+              >
+                <Icon className="w-4.5 h-4.5 shrink-0" />
+                <span className="truncate w-full text-center">{cat.name}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Inline Category Creator Sub-Form */}
+        {showNewCat && (
+          <div className="p-4 rounded-2xl bg-dark-950 border border-white/[0.04] space-y-4 animate-slide-down mt-2">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-dark-500">Category Name</label>
+              <input
+                type="text"
+                value={newCatName}
+                onChange={(e) => setNewCatName(e.target.value)}
+                placeholder="e.g. Study, Work, Cooking"
+                className="input-dark text-xs py-2 px-3"
+                disabled={newCatLoading}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-dark-500">Color</label>
+                <select
+                  value={newCatColor}
+                  onChange={(e) => setNewCatColor(e.target.value)}
+                  className="input-dark text-xs py-2 px-3 h-[38px]"
+                  disabled={newCatLoading}
                 >
-                  <Icon className="w-4.5 h-4.5 shrink-0" />
-                  <span className="truncate w-full text-center">{cat.name}</span>
-                </button>
-              );
-            })}
+                  <option value="violet">Violet</option>
+                  <option value="cyan">Cyan</option>
+                  <option value="emerald">Emerald</option>
+                  <option value="orange">Orange</option>
+                  <option value="rose">Rose</option>
+                  <option value="pink">Pink</option>
+                  <option value="blue">Blue</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-dark-500">Icon</label>
+                <select
+                  value={newCatIcon}
+                  onChange={(e) => setNewCatIcon(e.target.value)}
+                  className="input-dark text-xs py-2 px-3 h-[38px]"
+                  disabled={newCatLoading}
+                >
+                  <option value="Tag">Tag</option>
+                  <option value="Briefcase">Briefcase</option>
+                  <option value="Heart">Heart</option>
+                  <option value="Brain">Brain</option>
+                  <option value="Dumbbell">Dumbbell</option>
+                  <option value="BookOpen">BookOpen</option>
+                  <option value="Coffee">Coffee</option>
+                  <option value="Smile">Smile</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowNewCat(false)}
+                disabled={newCatLoading}
+                className="px-3 py-1.5 rounded-lg border border-white/[0.06] text-xs font-semibold text-dark-500 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateCategory}
+                disabled={newCatLoading || !newCatName.trim()}
+                className="px-3 py-1.5 rounded-lg bg-accent-lime hover:bg-accent-lime/80 text-black text-xs font-semibold"
+              >
+                {newCatLoading ? 'Saving...' : 'Save Category'}
+              </button>
+            </div>
           </div>
         )}
       </div>

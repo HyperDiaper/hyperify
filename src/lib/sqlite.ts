@@ -1,8 +1,19 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import { cookies } from 'next/headers';
+import crypto from 'crypto';
+import { Category } from '@/types';
 
 declare global {
   var sqliteDb: Database.Database | undefined;
+}
+
+const SESSION_SECRET = process.env.SESSION_SECRET || 'hyperify-local-secret-key-32-chars-long-or-more';
+
+interface SessionData {
+  userId: string;
+  email: string;
+  displayName: string;
 }
 
 function getDbConnection(): Database.Database {
@@ -35,14 +46,63 @@ if (process.env.NODE_ENV !== 'production') {
   globalThis.sqliteDb = db;
 }
 
-import { Category } from '@/types';
-
 export const DEFAULT_CATEGORIES: Category[] = [
   { id: 'health', name: 'Health', color: 'emerald', icon: 'Heart', order: 1 },
   { id: 'work', name: 'Work', color: 'violet', icon: 'Briefcase', order: 2 },
   { id: 'mind', name: 'Mind', color: 'cyan', icon: 'Brain', order: 3 },
   { id: 'fitness', name: 'Fitness', color: 'orange', icon: 'Dumbbell', order: 4 },
 ];
+
+// Helper to decrypt session cookie
+export function decryptSession(sessionVal: string): SessionData | null {
+  try {
+    const parts = sessionVal.split(':');
+    const iv = Buffer.from(parts.shift() || '', 'hex');
+    const encryptedText = parts.join(':');
+    const key = crypto.scryptSync(SESSION_SECRET, 'salt', 32);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return JSON.parse(decrypted) as SessionData;
+  } catch (err) {
+    return null;
+  }
+}
+
+// Self-healing: Get user session and ensure they exist in the SQLite instance
+export async function getUserIdFromSession(): Promise<string> {
+  const cookieStore = await cookies();
+  const session = cookieStore.get('hyperify_session')?.value;
+  if (!session) throw new Error('Unauthorized');
+
+  const sessionData = decryptSession(session);
+  if (!sessionData) throw new Error('Unauthorized');
+
+  try {
+    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(sessionData.userId);
+    if (!user) {
+      const createdAt = new Date().toISOString();
+      db.prepare(
+        'INSERT INTO users (id, email, displayName, passwordHash, createdAt) VALUES (?, ?, ?, ?, ?)'
+      ).run(sessionData.userId, sessionData.email, sessionData.displayName, 'reconstructed_dummy_hash', createdAt);
+
+      // Seed default categories
+      const insertCategory = db.prepare(
+        'INSERT INTO categories (id, userId, name, color, icon, orderIndex) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+
+      db.transaction(() => {
+        DEFAULT_CATEGORIES.forEach((cat, index) => {
+          insertCategory.run(cat.id + '-' + sessionData.userId, sessionData.userId, cat.name, cat.color, cat.icon || '', index + 1);
+        });
+      })();
+    }
+  } catch (err) {
+    console.error('Self-healing database user check failed:', err);
+  }
+
+  return sessionData.userId;
+}
 
 // Initialize schema (tables and indexes)
 export function initDatabase() {
@@ -70,7 +130,7 @@ export function initDatabase() {
       userId TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
-      category TEXT NOT NULL,
+      category TEXT, -- nullable for optional categories
       type TEXT NOT NULL,
       target REAL,
       unit TEXT,
@@ -79,7 +139,7 @@ export function initDatabase() {
       archived INTEGER DEFAULT 0,
       orderIndex INTEGER NOT NULL,
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (category) REFERENCES categories(id) ON DELETE CASCADE
+      FOREIGN KEY (category) REFERENCES categories(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS completions (
@@ -114,6 +174,48 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_completions_habitId ON completions(habitId);
     CREATE INDEX IF NOT EXISTS idx_streaks_userId ON streaks(userId);
   `);
+
+  // Migrate existing databases: check if habits table has category constraint as NOT NULL
+  try {
+    const tableInfo = db.prepare("PRAGMA table_info(habits)").all() as any[];
+    const categoryCol = tableInfo.find((c) => c.name === 'category');
+    if (categoryCol && categoryCol.notnull === 1) {
+      db.transaction(() => {
+        db.exec(`
+          PRAGMA foreign_keys = OFF;
+          
+          CREATE TABLE habits_temp (
+            id TEXT PRIMARY KEY,
+            userId TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            category TEXT,
+            type TEXT NOT NULL,
+            target REAL,
+            unit TEXT,
+            gradient TEXT NOT NULL,
+            createdAt TEXT NOT NULL,
+            archived INTEGER DEFAULT 0,
+            orderIndex INTEGER NOT NULL,
+            FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (category) REFERENCES categories(id) ON DELETE SET NULL
+          );
+          
+          INSERT INTO habits_temp (id, userId, name, description, category, type, target, unit, gradient, createdAt, archived, orderIndex)
+          SELECT id, userId, name, description, category, type, target, unit, gradient, createdAt, archived, orderIndex FROM habits;
+          
+          DROP TABLE habits;
+          
+          ALTER TABLE habits_temp RENAME TO habits;
+          
+          PRAGMA foreign_keys = ON;
+        `);
+      })();
+      console.log('Successfully migrated habits table to allow null categories.');
+    }
+  } catch (err) {
+    console.error('Error during habits table migration:', err);
+  }
 }
 
 // Automatically initialize database

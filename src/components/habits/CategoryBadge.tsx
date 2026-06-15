@@ -4,7 +4,7 @@ import { useHabitsContext } from '@/context/HabitContext';
 import * as Icons from 'lucide-react';
 
 interface CategoryBadgeProps {
-  categoryId: string;
+  categoryId?: string | null;
   categoryName?: string;
   categoryColor?: string;
 }
@@ -26,16 +26,17 @@ const colorClasses: Record<string, string> = {
   indigo: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
   lavender: 'bg-indigo-300/10 text-indigo-300 border-indigo-300/20',
   mint: 'bg-emerald-400/10 text-emerald-400 border-emerald-400/20',
+  gray: 'bg-white/[0.03] text-dark-500 border-white/[0.05]',
 };
 
 export default function CategoryBadge({ categoryId, categoryName, categoryColor }: CategoryBadgeProps) {
   const { categories } = useHabitsContext();
   
   // Try to find the category in the dynamic categories list
-  const found = categories.find((c) => c.id === categoryId);
+  const found = categoryId ? categories.find((c) => c.id === categoryId) : undefined;
   
-  const name = categoryName || found?.name || categoryId;
-  const color = categoryColor || found?.color || 'violet';
+  const name = categoryName || found?.name || 'Uncategorized';
+  const color = categoryColor || found?.color || 'gray';
   const iconName = found?.icon || 'Tag';
 
   const IconComponent = (Icons as any)[iconName] || Icons.Tag;

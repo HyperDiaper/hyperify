@@ -1,32 +1,9 @@
 'use server';
 
-import { cookies } from 'next/headers';
-import crypto from 'crypto';
-import { db } from '@/lib/sqlite';
+import { db, getUserIdFromSession } from '@/lib/sqlite';
 import { Habit, StreakData } from '@/types';
 import { calculateStreak } from '@/lib/utils';
-
-const SESSION_SECRET = process.env.SESSION_SECRET || 'hyperify-local-secret-key-32-chars-long-or-more';
-
-// Helper to get authenticated userId from session
-async function getUserIdFromSession(): Promise<string> {
-  const cookieStore = await cookies();
-  const session = cookieStore.get('hyperify_session')?.value;
-  if (!session) throw new Error('Unauthorized');
-
-  try {
-    const parts = session.split(':');
-    const iv = Buffer.from(parts.shift() || '', 'hex');
-    const encryptedText = parts.join(':');
-    const key = crypto.scryptSync(SESSION_SECRET, 'salt', 32);
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch {
-    throw new Error('Unauthorized');
-  }
-}
+import crypto from 'crypto';
 
 export async function getHabitsAction(): Promise<any[]> {
   const userId = await getUserIdFromSession();
@@ -76,7 +53,7 @@ export async function addHabitAction(
       userId,
       habitData.name,
       habitData.description || '',
-      habitData.category,
+      habitData.category ? habitData.category : null,
       habitData.type,
       habitData.target !== undefined ? habitData.target : null,
       habitData.unit || '',
@@ -117,7 +94,7 @@ export async function updateHabitAction(habitId: string, updates: Partial<Habit>
     }
     if (updates.category !== undefined) {
       fields.push('category = ?');
-      values.push(updates.category);
+      values.push(updates.category ? updates.category : null);
     }
     if (updates.type !== undefined) {
       fields.push('type = ?');

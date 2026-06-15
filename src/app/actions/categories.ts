@@ -1,6 +1,7 @@
 'use server';
 
-import { db, getUserIdFromSession } from '@/lib/sqlite';
+import { getUserIdFromSession } from '@/lib/sqlite';
+import { supabase } from '@/lib/supabase';
 import { Category } from '@/types';
 import crypto from 'crypto';
 
@@ -8,11 +9,15 @@ export async function getCategoriesAction(): Promise<Category[]> {
   const userId = await getUserIdFromSession();
   
   try {
-    const rows = db.prepare(
-      'SELECT id, name, color, icon, orderIndex FROM categories WHERE userId = ? ORDER BY orderIndex ASC'
-    ).all(userId) as any[];
+    const { data: rows, error } = await supabase
+      .from('categories')
+      .select('id, name, color, icon, orderIndex')
+      .eq('userId', userId)
+      .order('orderIndex', { ascending: true });
 
-    return rows.map((row) => ({
+    if (error) throw error;
+
+    return (rows || []).map((row) => ({
       id: row.id,
       name: row.name,
       color: row.color,
@@ -29,43 +34,91 @@ export async function addCategoryAction(categoryData: Omit<Category, 'id' | 'ord
   const userId = await getUserIdFromSession();
   const catId = `cat-${crypto.randomUUID()}`;
 
-  // Get max order
-  const maxOrderRow = db.prepare('SELECT MAX(orderIndex) as maxOrder FROM categories WHERE userId = ?').get(userId) as any;
-  const nextOrder = (maxOrderRow?.maxOrder || 0) + 1;
+  try {
+    // Get max order
+    const { data: maxRow, error: maxErr } = await supabase
+      .from('categories')
+      .select('orderIndex')
+      .eq('userId', userId)
+      .order('orderIndex', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  db.prepare(
-    'INSERT INTO categories (id, userId, name, color, icon, orderIndex) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(catId, userId, categoryData.name, categoryData.color, categoryData.icon || '', nextOrder);
+    if (maxErr) throw maxErr;
+    const nextOrder = (maxRow?.orderIndex || 0) + 1;
 
-  return catId;
+    const { error: insertErr } = await supabase
+      .from('categories')
+      .insert({
+        id: catId,
+        userId,
+        name: categoryData.name,
+        color: categoryData.color,
+        icon: categoryData.icon || '',
+        orderIndex: nextOrder,
+      });
+
+    if (insertErr) throw insertErr;
+
+    return catId;
+  } catch (err) {
+    console.error('Error adding category:', err);
+    throw err;
+  }
 }
 
 export async function deleteCategoryAction(categoryId: string): Promise<void> {
   const userId = await getUserIdFromSession();
 
-  db.transaction(() => {
-    // 1. Delete the category
-    db.prepare('DELETE FROM categories WHERE id = ? AND userId = ?').run(categoryId, userId);
+  try {
+    // 1. Find remaining categories (excluding the one being deleted)
+    const { data: remaining, error: findErr } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('userId', userId)
+      .neq('id', categoryId)
+      .order('orderIndex', { ascending: true });
 
-    // 2. Find fallback category
-    const remainingCats = db.prepare(
-      'SELECT id FROM categories WHERE userId = ? ORDER BY orderIndex ASC LIMIT 1'
-    ).get(userId) as any;
+    if (findErr) throw findErr;
 
     let fallbackCatId = `health-${userId}`;
-    if (remainingCats) {
-      fallbackCatId = remainingCats.id;
+    if (remaining && remaining.length > 0) {
+      fallbackCatId = remaining[0].id;
     } else {
       // If no categories left, create a default health category
       fallbackCatId = `health-${userId}`;
-      db.prepare(
-        'INSERT INTO categories (id, userId, name, color, icon, orderIndex) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(fallbackCatId, userId, 'Health', 'emerald', 'Heart', 1);
+      const { error: insertErr } = await supabase
+        .from('categories')
+        .insert({
+          id: fallbackCatId,
+          userId,
+          name: 'Health',
+          color: 'emerald',
+          icon: 'Heart',
+          orderIndex: 1,
+        });
+      if (insertErr) throw insertErr;
     }
 
-    // 3. Update all habits using this category to the fallback
-    db.prepare(
-      'UPDATE habits SET category = ? WHERE category = ? AND userId = ?'
-    ).run(fallbackCatId, categoryId, userId);
-  })();
+    // 2. Update all habits using this category to the fallback
+    const { error: updateErr } = await supabase
+      .from('habits')
+      .update({ category: fallbackCatId })
+      .eq('category', categoryId)
+      .eq('userId', userId);
+
+    if (updateErr) throw updateErr;
+
+    // 3. Delete the category
+    const { error: deleteErr } = await supabase
+      .from('categories')
+      .delete()
+      .eq('id', categoryId)
+      .eq('userId', userId);
+
+    if (deleteErr) throw deleteErr;
+  } catch (err) {
+    console.error('Error deleting category:', err);
+    throw err;
+  }
 }

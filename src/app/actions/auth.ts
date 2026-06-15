@@ -2,7 +2,8 @@
 
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
-import { db, DEFAULT_CATEGORIES, decryptSession, getUserIdFromSession } from '@/lib/sqlite';
+import { DEFAULT_CATEGORIES, decryptSession, getUserIdFromSession } from '@/lib/sqlite';
+import { supabase } from '@/lib/supabase';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'hyperify-local-secret-key-32-chars-long-or-more';
 
@@ -15,7 +16,6 @@ interface SessionData {
 // Helper to encrypt session cookie
 function encryptSession(data: SessionData): string {
   const iv = crypto.randomBytes(16);
-  // Use first 32 chars of secret key
   const key = crypto.scryptSync(SESSION_SECRET, 'salt', 32);
   const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
   let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
@@ -50,26 +50,46 @@ export async function getCurrentUserAction() {
   if (!sessionData) return null;
 
   try {
-    let user = db.prepare('SELECT id, email, displayName, createdAt, accent FROM users WHERE id = ?').get(sessionData.userId) as any;
+    let { data: user, error } = await supabase
+      .from('users')
+      .select('id, email, displayName, createdAt, accent')
+      .eq('id', sessionData.userId)
+      .maybeSingle();
+
+    if (error) throw error;
     
-    // Auto-reconstruct user if database was recycled/reset (e.g. serverless container swap on Netlify)
+    // Auto-reconstruct user if database was recycled/reset
     if (!user) {
       const createdAt = new Date().toISOString();
       try {
-        db.prepare(
-          'INSERT INTO users (id, email, displayName, passwordHash, createdAt, accent) VALUES (?, ?, ?, ?, ?, ?)'
-        ).run(sessionData.userId, sessionData.email, sessionData.displayName, 'reconstructed_dummy_hash', createdAt, 'lime');
+        const { error: insertErr } = await supabase
+          .from('users')
+          .insert({
+            id: sessionData.userId,
+            email: sessionData.email,
+            displayName: sessionData.displayName,
+            passwordHash: 'reconstructed_dummy_hash',
+            createdAt,
+            accent: 'lime',
+          });
+
+        if (insertErr) throw insertErr;
 
         // Seed default categories
-        const insertCategory = db.prepare(
-          'INSERT INTO categories (id, userId, name, color, icon, orderIndex) VALUES (?, ?, ?, ?, ?, ?)'
-        );
+        const categoriesToInsert = DEFAULT_CATEGORIES.map((cat, index) => ({
+          id: `${cat.id}-${sessionData.userId}`,
+          userId: sessionData.userId,
+          name: cat.name,
+          color: cat.color,
+          icon: cat.icon || '',
+          orderIndex: index + 1,
+        }));
 
-        db.transaction(() => {
-          DEFAULT_CATEGORIES.forEach((cat, index) => {
-            insertCategory.run(cat.id + '-' + sessionData.userId, sessionData.userId, cat.name, cat.color, cat.icon || '', index + 1);
-          });
-        })();
+        const { error: catErr } = await supabase
+          .from('categories')
+          .insert(categoriesToInsert);
+
+        if (catErr) throw catErr;
 
         user = {
           id: sessionData.userId,
@@ -80,11 +100,14 @@ export async function getCurrentUserAction() {
         };
       } catch (insertErr) {
         console.warn('Concurrent user auto-reconstruction handled:', insertErr);
-        // Double-check if user was created by another request in the meantime
-        user = db.prepare('SELECT id, email, displayName, createdAt, accent FROM users WHERE id = ?').get(sessionData.userId) as any;
-        if (!user) {
-          throw insertErr;
-        }
+        const { data: checkAgain, error: checkErr } = await supabase
+          .from('users')
+          .select('id, email, displayName, createdAt, accent')
+          .eq('id', sessionData.userId)
+          .maybeSingle();
+
+        if (checkErr || !checkAgain) throw insertErr;
+        user = checkAgain;
       }
     }
 
@@ -105,7 +128,13 @@ export async function getCurrentUserAction() {
 export async function signUpAction(email: string, password: string, displayName: string) {
   try {
     // Check if user exists
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    const { data: existing, error: findErr } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (findErr) throw findErr;
     if (existing) {
       return { success: false, error: 'Email already in use' };
     }
@@ -115,20 +144,34 @@ export async function signUpAction(email: string, password: string, displayName:
     const createdAt = new Date().toISOString();
 
     // Insert user
-    db.prepare(
-      'INSERT INTO users (id, email, displayName, passwordHash, createdAt) VALUES (?, ?, ?, ?, ?)'
-    ).run(userId, email, displayName, passwordHash, createdAt);
+    const { error: insertErr } = await supabase
+      .from('users')
+      .insert({
+        id: userId,
+        email,
+        displayName,
+        passwordHash,
+        createdAt,
+        accent: 'lime',
+      });
+
+    if (insertErr) throw insertErr;
 
     // Seed default categories
-    const insertCategory = db.prepare(
-      'INSERT INTO categories (id, userId, name, color, icon, orderIndex) VALUES (?, ?, ?, ?, ?, ?)'
-    );
+    const categoriesToInsert = DEFAULT_CATEGORIES.map((cat, index) => ({
+      id: `${cat.id}-${userId}`,
+      userId,
+      name: cat.name,
+      color: cat.color,
+      icon: cat.icon || '',
+      orderIndex: index + 1,
+    }));
 
-    db.transaction(() => {
-      DEFAULT_CATEGORIES.forEach((cat, index) => {
-        insertCategory.run(cat.id + '-' + userId, userId, cat.name, cat.color, cat.icon || '', index + 1);
-      });
-    })();
+    const { error: catErr } = await supabase
+      .from('categories')
+      .insert(categoriesToInsert);
+
+    if (catErr) throw catErr;
 
     // Set session cookie
     const session = encryptSession({ userId, email, displayName });
@@ -160,7 +203,13 @@ export async function signUpAction(email: string, password: string, displayName:
 
 export async function signInAction(email: string, password: string) {
   try {
-    let user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+    const { data: user, error: findErr } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (findErr) throw findErr;
     
     // Serverless helper: if user exists in cookie but database was reset,
     // we automatically sign them up.
@@ -208,5 +257,13 @@ export async function signOutAction() {
 
 export async function updateUserAccentAction(accent: string): Promise<void> {
   const userId = await getUserIdFromSession();
-  db.prepare('UPDATE users SET accent = ? WHERE id = ?').run(accent, userId);
+  const { error } = await supabase
+    .from('users')
+    .update({ accent })
+    .eq('id', userId);
+
+  if (error) {
+    console.error('Error updating user accent:', error);
+    throw error;
+  }
 }

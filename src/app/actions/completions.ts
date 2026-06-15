@@ -1,6 +1,7 @@
 'use server';
 
-import { db, getUserIdFromSession } from '@/lib/sqlite';
+import { getUserIdFromSession } from '@/lib/sqlite';
+import { supabase } from '@/lib/supabase';
 import { Completion, StreakData, HabitType } from '@/types';
 import { calculateStreak } from '@/lib/utils';
 
@@ -8,16 +9,20 @@ export async function getCompletionsAction(habitId: string): Promise<any[]> {
   const userId = await getUserIdFromSession();
 
   try {
-    const rows = db.prepare(
-      'SELECT date, completed, value, duration, timestamp FROM completions WHERE habitId = ? AND userId = ?'
-    ).all(habitId, userId) as any[];
+    const { data: rows, error } = await supabase
+      .from('completions')
+      .select('date, completed, value, duration, timestamp')
+      .eq('habitId', habitId)
+      .eq('userId', userId);
 
-    return rows.map((row) => ({
+    if (error) throw error;
+
+    return (rows || []).map((row) => ({
       date: row.date,
       completed: row.completed === 1,
       value: row.value !== null ? row.value : undefined,
       duration: row.duration !== null ? row.duration : undefined,
-      timestamp: row.timestamp, // client hook will wrap
+      timestamp: row.timestamp,
     }));
   } catch (err) {
     console.error('Error fetching completions:', err);
@@ -29,12 +34,15 @@ export async function getStreaksAction(): Promise<Record<string, StreakData>> {
   const userId = await getUserIdFromSession();
 
   try {
-    const rows = db.prepare(
-      'SELECT habitId, currentStreak, longestStreak, lastCompletedDate, graceDaysEarned, graceDaysUsed, freezeAvailable, completionRate FROM streaks WHERE userId = ?'
-    ).all(userId) as any[];
+    const { data: rows, error } = await supabase
+      .from('streaks')
+      .select('habitId, currentStreak, longestStreak, lastCompletedDate, graceDaysEarned, graceDaysUsed, freezeAvailable, completionRate')
+      .eq('userId', userId);
+
+    if (error) throw error;
 
     const streaksMap: Record<string, StreakData> = {};
-    rows.forEach((row) => {
+    (rows || []).forEach((row) => {
       streaksMap[row.habitId] = {
         currentStreak: row.currentStreak,
         longestStreak: row.longestStreak,
@@ -65,40 +73,56 @@ export async function saveCompletionAction(
   const userId = await getUserIdFromSession();
   const timestamp = new Date().toISOString();
 
-  // Validate habit existence to prevent foreign key constraint violations (e.g. if database reset)
-  const habitExists = db.prepare('SELECT id FROM habits WHERE id = ? AND userId = ?').get(habitId, userId);
-  if (!habitExists) {
-    console.warn(`Attempted to save completion for non-existent habit: ${habitId}`);
-    return;
-  }
+  try {
+    // Validate habit existence
+    const { data: habitExists, error: findErr } = await supabase
+      .from('habits')
+      .select('id')
+      .eq('id', habitId)
+      .eq('userId', userId)
+      .maybeSingle();
 
-  db.transaction(() => {
+    if (findErr || !habitExists) {
+      console.warn(`Attempted to save completion for non-existent habit: ${habitId}`);
+      return;
+    }
+
     // 1. Delete/insert completion row
     if (!completed) {
-      db.prepare(
-        'DELETE FROM completions WHERE userId = ? AND habitId = ? AND date = ?'
-      ).run(userId, habitId, dateStr);
+      const { error: deleteErr } = await supabase
+        .from('completions')
+        .delete()
+        .eq('userId', userId)
+        .eq('habitId', habitId)
+        .eq('date', dateStr);
+
+      if (deleteErr) throw deleteErr;
     } else {
-      // Use REPLACE INTO to update if already exists
-      db.prepare(
-        `REPLACE INTO completions (userId, habitId, date, completed, value, duration, timestamp)
-         VALUES (?, ?, ?, 1, ?, ?, ?)`
-      ).run(
-        userId,
-        habitId,
-        dateStr,
-        value !== undefined ? value : null,
-        duration !== undefined ? duration : null,
-        timestamp
-      );
+      const { error: upsertErr } = await supabase
+        .from('completions')
+        .upsert({
+          userId,
+          habitId,
+          date: dateStr,
+          completed: 1,
+          value: value !== undefined ? value : null,
+          duration: duration !== undefined ? duration : null,
+          timestamp,
+        });
+
+      if (upsertErr) throw upsertErr;
     }
 
     // 2. Fetch all completions for streak calculation
-    const compRows = db.prepare(
-      'SELECT date, completed, value, duration FROM completions WHERE habitId = ? AND userId = ?'
-    ).all(habitId, userId) as any[];
+    const { data: compRows, error: compErr } = await supabase
+      .from('completions')
+      .select('date, completed, value, duration')
+      .eq('habitId', habitId)
+      .eq('userId', userId);
 
-    const completions = compRows.map((c) => ({
+    if (compErr) throw compErr;
+
+    const completions = (compRows || []).map((c) => ({
       date: c.date,
       completed: c.completed === 1,
       value: c.value !== null ? c.value : undefined,
@@ -114,34 +138,41 @@ export async function saveCompletionAction(
     const streakData = calculateStreak(completions, habitType, targetValue);
 
     // 4. Update streak table
-    db.prepare(
-      `UPDATE streaks
-       SET currentStreak = ?, longestStreak = ?, lastCompletedDate = ?, graceDaysEarned = ?, graceDaysUsed = ?, freezeAvailable = ?, completionRate = ?
-       WHERE habitId = ? AND userId = ?`
-    ).run(
-      streakData.currentStreak,
-      streakData.longestStreak,
-      streakData.lastCompletedDate,
-      streakData.graceDaysEarned,
-      streakData.graceDaysUsed,
-      streakData.freezeAvailable ? 1 : 0,
-      streakData.completionRate,
-      habitId,
-      userId
-    );
-  })();
+    const { error: streakErr } = await supabase
+      .from('streaks')
+      .update({
+        currentStreak: streakData.currentStreak,
+        longestStreak: streakData.longestStreak,
+        lastCompletedDate: streakData.lastCompletedDate,
+        graceDaysEarned: streakData.graceDaysEarned,
+        graceDaysUsed: streakData.graceDaysUsed,
+        freezeAvailable: streakData.freezeAvailable ? 1 : 0,
+        completionRate: streakData.completionRate,
+      })
+      .eq('habitId', habitId)
+      .eq('userId', userId);
+
+    if (streakErr) throw streakErr;
+  } catch (err) {
+    console.error('Error saving completion:', err);
+    throw err;
+  }
 }
 
 export async function getTodayCompletionsAction(dateStr: string): Promise<Record<string, boolean>> {
   const userId = await getUserIdFromSession();
 
   try {
-    const rows = db.prepare(
-      'SELECT habitId, completed FROM completions WHERE userId = ? AND date = ?'
-    ).all(userId, dateStr) as any[];
+    const { data: rows, error } = await supabase
+      .from('completions')
+      .select('habitId, completed')
+      .eq('userId', userId)
+      .eq('date', dateStr);
+
+    if (error) throw error;
 
     const map: Record<string, boolean> = {};
-    rows.forEach((row) => {
+    (rows || []).forEach((row) => {
       map[row.habitId] = row.completed === 1;
     });
     return map;
@@ -155,12 +186,15 @@ export async function getAllCompletionsAction(): Promise<Record<string, Completi
   const userId = await getUserIdFromSession();
 
   try {
-    const rows = db.prepare(
-      'SELECT habitId, date, completed, value, duration, timestamp FROM completions WHERE userId = ?'
-    ).all(userId) as any[];
+    const { data: rows, error } = await supabase
+      .from('completions')
+      .select('habitId, date, completed, value, duration, timestamp')
+      .eq('userId', userId);
+
+    if (error) throw error;
 
     const map: Record<string, Completion[]> = {};
-    rows.forEach((row) => {
+    (rows || []).forEach((row) => {
       if (!map[row.habitId]) {
         map[row.habitId] = [];
       }

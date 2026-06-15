@@ -1,7 +1,8 @@
 'use server';
 
-import { db, getUserIdFromSession } from '@/lib/sqlite';
-import { Habit, StreakData } from '@/types';
+import { getUserIdFromSession } from '@/lib/sqlite';
+import { supabase } from '@/lib/supabase';
+import { Habit } from '@/types';
 import { calculateStreak } from '@/lib/utils';
 import crypto from 'crypto';
 
@@ -9,11 +10,16 @@ export async function getHabitsAction(): Promise<any[]> {
   const userId = await getUserIdFromSession();
 
   try {
-    const rows = db.prepare(
-      'SELECT * FROM habits WHERE userId = ? AND archived = 0 ORDER BY orderIndex ASC'
-    ).all(userId) as any[];
+    const { data: rows, error } = await supabase
+      .from('habits')
+      .select('*')
+      .eq('userId', userId)
+      .eq('archived', 0)
+      .order('orderIndex', { ascending: true });
 
-    return rows.map((row) => ({
+    if (error) throw error;
+
+    return (rows || []).map((row) => ({
       id: row.id,
       name: row.name,
       description: row.description || undefined,
@@ -39,111 +45,129 @@ export async function addHabitAction(
   const habitId = `habit-${crypto.randomUUID()}`;
   const createdAt = new Date().toISOString();
 
-  // Get max order
-  const maxOrderRow = db.prepare('SELECT MAX(orderIndex) as maxOrder FROM habits WHERE userId = ?').get(userId) as any;
-  const nextOrder = (maxOrderRow?.maxOrder || 0) + 1;
+  try {
+    // Get max order
+    const { data: maxRow, error: maxErr } = await supabase
+      .from('habits')
+      .select('orderIndex')
+      .eq('userId', userId)
+      .order('orderIndex', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  // Validate category existence to prevent foreign key constraint violations (e.g. if category was deleted or database reset)
-  let verifiedCategory: string | null = null;
-  if (habitData.category) {
-    const exists = db.prepare('SELECT id FROM categories WHERE id = ? AND userId = ?').get(habitData.category, userId);
-    if (exists) {
-      verifiedCategory = habitData.category;
+    if (maxErr) throw maxErr;
+    const nextOrder = (maxRow?.orderIndex || 0) + 1;
+
+    // Validate category existence
+    let verifiedCategory: string | null = null;
+    if (habitData.category) {
+      const { data: exists } = await supabase
+        .from('categories')
+        .select('id')
+        .eq('id', habitData.category)
+        .eq('userId', userId)
+        .maybeSingle();
+      if (exists) {
+        verifiedCategory = habitData.category;
+      }
     }
-  }
 
-  db.transaction(() => {
     // 1. Insert habit
-    db.prepare(
-      `INSERT INTO habits (id, userId, name, description, category, type, target, unit, gradient, createdAt, archived, orderIndex)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
-    ).run(
-      habitId,
-      userId,
-      habitData.name,
-      habitData.description || '',
-      verifiedCategory,
-      habitData.type,
-      habitData.target !== undefined ? habitData.target : null,
-      habitData.unit || '',
-      habitData.gradient,
-      createdAt,
-      nextOrder
-    );
+    const { error: insertErr } = await supabase
+      .from('habits')
+      .insert({
+        id: habitId,
+        userId,
+        name: habitData.name,
+        description: habitData.description || '',
+        category: verifiedCategory,
+        type: habitData.type,
+        target: habitData.target !== undefined ? habitData.target : null,
+        unit: habitData.unit || '',
+        gradient: habitData.gradient,
+        createdAt,
+        archived: 0,
+        orderIndex: nextOrder,
+      });
+
+    if (insertErr) throw insertErr;
 
     // 2. Initialize blank streak
-    db.prepare(
-      `INSERT INTO streaks (habitId, userId, currentStreak, longestStreak, lastCompletedDate, graceDaysEarned, graceDaysUsed, freezeAvailable, completionRate)
-       VALUES (?, ?, 0, 0, '', 0, 0, 0, 0.0)`
-    ).run(habitId, userId);
-  })();
+    const { error: streakErr } = await supabase
+      .from('streaks')
+      .insert({
+        habitId,
+        userId,
+        currentStreak: 0,
+        longestStreak: 0,
+        lastCompletedDate: '',
+        graceDaysEarned: 0,
+        graceDaysUsed: 0,
+        freezeAvailable: 0,
+        completionRate: 0.0,
+      });
 
-  return habitId;
+    if (streakErr) throw streakErr;
+
+    return habitId;
+  } catch (err) {
+    console.error('Error in addHabitAction:', err);
+    throw err;
+  }
 }
 
 export async function updateHabitAction(habitId: string, updates: Partial<Habit>): Promise<void> {
   const userId = await getUserIdFromSession();
 
-  db.transaction(() => {
+  try {
     // Fetch current habit
-    const current = db.prepare('SELECT * FROM habits WHERE id = ? AND userId = ?').get(habitId, userId) as any;
-    if (!current) {
+    const { data: current, error: findErr } = await supabase
+      .from('habits')
+      .select('*')
+      .eq('id', habitId)
+      .eq('userId', userId)
+      .maybeSingle();
+
+    if (findErr || !current) {
       console.warn(`Attempted to update non-existent habit: ${habitId}`);
       return;
     }
 
-    // Build update dynamic query
-    const fields: string[] = [];
-    const values: any[] = [];
+    // Build update dynamic parameters
+    const supabaseUpdates: any = {};
 
-    if (updates.name !== undefined) {
-      fields.push('name = ?');
-      values.push(updates.name);
-    }
-    if (updates.description !== undefined) {
-      fields.push('description = ?');
-      values.push(updates.description);
-    }
+    if (updates.name !== undefined) supabaseUpdates.name = updates.name;
+    if (updates.description !== undefined) supabaseUpdates.description = updates.description;
     if (updates.category !== undefined) {
-      fields.push('category = ?');
       let verifiedCategory: string | null = null;
       if (updates.category) {
-        const exists = db.prepare('SELECT id FROM categories WHERE id = ? AND userId = ?').get(updates.category, userId);
+        const { data: exists } = await supabase
+          .from('categories')
+          .select('id')
+          .eq('id', updates.category)
+          .eq('userId', userId)
+          .maybeSingle();
         if (exists) {
           verifiedCategory = updates.category;
         }
       }
-      values.push(verifiedCategory);
+      supabaseUpdates.category = verifiedCategory;
     }
-    if (updates.type !== undefined) {
-      fields.push('type = ?');
-      values.push(updates.type);
-    }
-    if (updates.target !== undefined) {
-      fields.push('target = ?');
-      values.push(updates.target !== undefined ? updates.target : null);
-    }
-    if (updates.unit !== undefined) {
-      fields.push('unit = ?');
-      values.push(updates.unit);
-    }
-    if (updates.gradient !== undefined) {
-      fields.push('gradient = ?');
-      values.push(updates.gradient);
-    }
-    if (updates.archived !== undefined) {
-      fields.push('archived = ?');
-      values.push(updates.archived ? 1 : 0);
-    }
-    if (updates.order !== undefined) {
-      fields.push('orderIndex = ?');
-      values.push(updates.order);
-    }
+    if (updates.type !== undefined) supabaseUpdates.type = updates.type;
+    if (updates.target !== undefined) supabaseUpdates.target = updates.target !== undefined ? updates.target : null;
+    if (updates.unit !== undefined) supabaseUpdates.unit = updates.unit;
+    if (updates.gradient !== undefined) supabaseUpdates.gradient = updates.gradient;
+    if (updates.archived !== undefined) supabaseUpdates.archived = updates.archived ? 1 : 0;
+    if (updates.order !== undefined) supabaseUpdates.orderIndex = updates.order;
 
-    if (fields.length > 0) {
-      const query = `UPDATE habits SET ${fields.join(', ')} WHERE id = ? AND userId = ?`;
-      values.push(habitId, userId);
-      db.prepare(query).run(...values);
+    if (Object.keys(supabaseUpdates).length > 0) {
+      const { error: updateErr } = await supabase
+        .from('habits')
+        .update(supabaseUpdates)
+        .eq('id', habitId)
+        .eq('userId', userId);
+
+      if (updateErr) throw updateErr;
     }
 
     // If type or target value changed, recalculate streak metrics
@@ -152,11 +176,15 @@ export async function updateHabitAction(habitId: string, updates: Partial<Habit>
       const targetValue = updates.target !== undefined ? updates.target : current.target;
 
       // Get completions
-      const compRows = db.prepare(
-        'SELECT date, completed, value, duration, timestamp FROM completions WHERE habitId = ? AND userId = ?'
-      ).all(habitId, userId) as any[];
+      const { data: compRows, error: compErr } = await supabase
+        .from('completions')
+        .select('date, completed, value, duration, timestamp')
+        .eq('habitId', habitId)
+        .eq('userId', userId);
 
-      const completions = compRows.map((c) => ({
+      if (compErr) throw compErr;
+
+      const completions = (compRows || []).map((c) => ({
         date: c.date,
         completed: c.completed === 1,
         value: c.value !== null ? c.value : undefined,
@@ -170,28 +198,41 @@ export async function updateHabitAction(habitId: string, updates: Partial<Habit>
 
       const streakData = calculateStreak(completions, habitType, targetValue);
 
-      db.prepare(
-        `UPDATE streaks
-         SET currentStreak = ?, longestStreak = ?, lastCompletedDate = ?, graceDaysEarned = ?, graceDaysUsed = ?, freezeAvailable = ?, completionRate = ?
-         WHERE habitId = ? AND userId = ?`
-      ).run(
-        streakData.currentStreak,
-        streakData.longestStreak,
-        streakData.lastCompletedDate,
-        streakData.graceDaysEarned,
-        streakData.graceDaysUsed,
-        streakData.freezeAvailable ? 1 : 0,
-        streakData.completionRate,
-        habitId,
-        userId
-      );
+      const { error: streakErr } = await supabase
+        .from('streaks')
+        .update({
+          currentStreak: streakData.currentStreak,
+          longestStreak: streakData.longestStreak,
+          lastCompletedDate: streakData.lastCompletedDate,
+          graceDaysEarned: streakData.graceDaysEarned,
+          graceDaysUsed: streakData.graceDaysUsed,
+          freezeAvailable: streakData.freezeAvailable ? 1 : 0,
+          completionRate: streakData.completionRate,
+        })
+        .eq('habitId', habitId)
+        .eq('userId', userId);
+
+      if (streakErr) throw streakErr;
     }
-  })();
+  } catch (err) {
+    console.error('Error updating habit:', err);
+    throw err;
+  }
 }
 
 export async function deleteHabitAction(habitId: string): Promise<void> {
   const userId = await getUserIdFromSession();
 
-  // Due to ON DELETE CASCADE constraints, this will automatically delete completions and streaks
-  db.prepare('DELETE FROM habits WHERE id = ? AND userId = ?').run(habitId, userId);
+  try {
+    const { error } = await supabase
+      .from('habits')
+      .delete()
+      .eq('id', habitId)
+      .eq('userId', userId);
+
+    if (error) throw error;
+  } catch (err) {
+    console.error('Error deleting habit:', err);
+    throw err;
+  }
 }

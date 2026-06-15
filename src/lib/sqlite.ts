@@ -122,7 +122,8 @@ export function initDatabase() {
       email TEXT UNIQUE NOT NULL,
       displayName TEXT,
       passwordHash TEXT NOT NULL,
-      createdAt TEXT NOT NULL
+      createdAt TEXT NOT NULL,
+      accent TEXT DEFAULT 'lime'
     );
 
     CREATE TABLE IF NOT EXISTS categories (
@@ -225,6 +226,18 @@ export function initDatabase() {
     }
   } catch (err) {
     console.error('Error during habits table migration:', err);
+  }
+
+  // Migrate users table: add accent column if missing
+  try {
+    const userTableInfo = db.prepare("PRAGMA table_info(users)").all() as any[];
+    const accentCol = userTableInfo.find((c) => c.name === 'accent');
+    if (!accentCol) {
+      db.exec("ALTER TABLE users ADD COLUMN accent TEXT DEFAULT 'lime'");
+      console.log('Successfully added accent column to users table.');
+    }
+  } catch (err) {
+    console.error('Error migrating users table:', err);
   }
 }
 

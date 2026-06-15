@@ -15,12 +15,14 @@ interface AuthContextType {
     displayName: string | null;
     photoURL: string | null;
     createdAt: string;
+    accent?: string;
   } | null;
   loading: boolean;
   signInWithGoogle: () => Promise<any>;
   signInWithEmail: (email: string, password: string) => Promise<any>;
   signUpWithEmail: (email: string, password: string, displayName: string) => Promise<any>;
   signOut: () => Promise<void>;
+  updateAccent: (accent: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -33,8 +35,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function loadUser() {
       try {
-        const currentUser = await getCurrentUserAction();
+        const currentUser = await getCurrentUserAction() as any;
         setUser(currentUser);
+        if (currentUser?.accent) {
+          const { applyAccent } = await import('@/components/layout/ClientAccentLoader');
+          applyAccent(currentUser.accent);
+        }
       } catch (err) {
         console.error('Failed to load user session:', err);
         setUser(null);
@@ -54,18 +60,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const password = 'SuperSecretLocalPassword123!';
       const displayName = 'Alex Hacker';
 
-      let loggedUser;
-      try {
-        loggedUser = await signInAction(email, password);
-      } catch {
-        // If user doesn't exist, sign up
-        loggedUser = await signUpAction(email, password, displayName);
+      let res = await signInAction(email, password) as any;
+      if (!res.success) {
+        res = await signUpAction(email, password, displayName) as any;
       }
       
-      setUser(loggedUser);
+      if (!res.success) {
+        throw new Error(res.error);
+      }
+      
+      setUser(res.user);
+      if (res.user.accent) {
+        const { applyAccent } = await import('@/components/layout/ClientAccentLoader');
+        applyAccent(res.user.accent);
+      }
       // Dispatch database-update event to trigger reloads of data
       window.dispatchEvent(new Event('database-update'));
-      return loggedUser;
+      return res.user;
     } catch (err) {
       console.error('Local Google Sign-In mock failed:', err);
       throw err;
@@ -82,6 +93,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(res.error);
       }
       setUser(res.user);
+      if (res.user.accent) {
+        const { applyAccent } = await import('@/components/layout/ClientAccentLoader');
+        applyAccent(res.user.accent);
+      }
       window.dispatchEvent(new Event('database-update'));
       return res.user;
     } catch (err) {
@@ -100,6 +115,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(res.error);
       }
       setUser(res.user);
+      if (res.user.accent) {
+        const { applyAccent } = await import('@/components/layout/ClientAccentLoader');
+        applyAccent(res.user.accent);
+      }
       window.dispatchEvent(new Event('database-update'));
       return res.user;
     } catch (err) {
@@ -123,6 +142,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateAccent = async (accent: string) => {
+    if (!user) return;
+    try {
+      const { updateUserAccentAction } = await import('@/app/actions/auth');
+      await updateUserAccentAction(accent);
+      const { applyAccent } = await import('@/components/layout/ClientAccentLoader');
+      applyAccent(accent);
+      setUser((prev: any) => prev ? { ...prev, accent } : null);
+    } catch (err) {
+      console.error('Failed to update user accent in database:', err);
+    }
+  };
+
   const value: AuthContextType = {
     user,
     loading,
@@ -130,6 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signInWithEmail,
     signUpWithEmail,
     signOut,
+    updateAccent,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

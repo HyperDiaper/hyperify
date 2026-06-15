@@ -51,7 +51,7 @@ const categoryColors = [
 ];
 
 export default function SettingsPage() {
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, loading: authLoading, signOut, updateAccent } = useAuth();
   const { categories, addCategory, deleteCategory } = useHabitsContext();
   const router = useRouter();
 
@@ -91,8 +91,8 @@ export default function SettingsPage() {
     }
   };
 
-  const handleAccentChange = (key: string) => {
-    applyAccent(key);
+  const handleAccentChange = async (key: string) => {
+    await updateAccent(key);
     setCurrentAccent(key);
   };
 

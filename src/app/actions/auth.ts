@@ -2,7 +2,7 @@
 
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
-import { db, DEFAULT_CATEGORIES, decryptSession } from '@/lib/sqlite';
+import { db, DEFAULT_CATEGORIES, decryptSession, getUserIdFromSession } from '@/lib/sqlite';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'hyperify-local-secret-key-32-chars-long-or-more';
 
@@ -50,15 +50,15 @@ export async function getCurrentUserAction() {
   if (!sessionData) return null;
 
   try {
-    let user = db.prepare('SELECT id, email, displayName, createdAt FROM users WHERE id = ?').get(sessionData.userId) as any;
+    let user = db.prepare('SELECT id, email, displayName, createdAt, accent FROM users WHERE id = ?').get(sessionData.userId) as any;
     
     // Auto-reconstruct user if database was recycled/reset (e.g. serverless container swap on Netlify)
     if (!user) {
       const createdAt = new Date().toISOString();
       try {
         db.prepare(
-          'INSERT INTO users (id, email, displayName, passwordHash, createdAt) VALUES (?, ?, ?, ?, ?)'
-        ).run(sessionData.userId, sessionData.email, sessionData.displayName, 'reconstructed_dummy_hash', createdAt);
+          'INSERT INTO users (id, email, displayName, passwordHash, createdAt, accent) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(sessionData.userId, sessionData.email, sessionData.displayName, 'reconstructed_dummy_hash', createdAt, 'lime');
 
         // Seed default categories
         const insertCategory = db.prepare(
@@ -76,11 +76,12 @@ export async function getCurrentUserAction() {
           email: sessionData.email,
           displayName: sessionData.displayName,
           createdAt,
+          accent: 'lime',
         };
       } catch (insertErr) {
         console.warn('Concurrent user auto-reconstruction handled:', insertErr);
         // Double-check if user was created by another request in the meantime
-        user = db.prepare('SELECT id, email, displayName, createdAt FROM users WHERE id = ?').get(sessionData.userId) as any;
+        user = db.prepare('SELECT id, email, displayName, createdAt, accent FROM users WHERE id = ?').get(sessionData.userId) as any;
         if (!user) {
           throw insertErr;
         }
@@ -93,6 +94,7 @@ export async function getCurrentUserAction() {
       displayName: user.displayName,
       photoURL: null,
       createdAt: user.createdAt,
+      accent: user.accent || 'lime',
     };
   } catch (err) {
     console.error('Error fetching current user:', err);
@@ -147,6 +149,7 @@ export async function signUpAction(email: string, password: string, displayName:
         displayName,
         photoURL: null,
         createdAt,
+        accent: 'lime',
       },
     };
   } catch (err: any) {
@@ -189,6 +192,7 @@ export async function signInAction(email: string, password: string) {
         displayName: user.displayName,
         photoURL: null,
         createdAt: user.createdAt,
+        accent: user.accent || 'lime',
       },
     };
   } catch (err: any) {
@@ -200,4 +204,9 @@ export async function signInAction(email: string, password: string) {
 export async function signOutAction() {
   const cookieStore = await cookies();
   cookieStore.delete('hyperify_session');
+}
+
+export async function updateUserAccentAction(accent: string): Promise<void> {
+  const userId = await getUserIdFromSession();
+  db.prepare('UPDATE users SET accent = ? WHERE id = ?').run(accent, userId);
 }

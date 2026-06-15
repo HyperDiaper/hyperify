@@ -9,6 +9,7 @@ export const ACCENTS: Record<string, { name: string; start: string; end: string;
   emerald: { name: 'Emerald', start: '#059669', end: '#34d399', glow: '5, 150, 105' },
   orange: { name: 'Sunset Orange', start: '#f97316', end: '#e11d48', glow: '249, 115, 22' },
   purple: { name: 'Electric Purple', start: '#7c3aed', end: '#db2777', glow: '124, 58, 237' },
+  mono: { name: 'Monochrome', start: '#ffffff', end: '#18181b', glow: '255, 255, 255' },
 };
 
 export default function ClientAccentLoader() {

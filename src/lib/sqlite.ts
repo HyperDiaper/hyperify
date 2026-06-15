@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
 import { Category } from '@/types';
-import { supabase } from './supabase';
+import { getSupabase } from './supabase';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'hyperify-local-secret-key-32-chars-long-or-more';
 
@@ -44,7 +44,7 @@ export async function getUserIdFromSession(): Promise<string> {
   if (!sessionData) throw new Error('Unauthorized');
 
   try {
-    const { data: user, error } = await supabase
+    const { data: user, error } = await getSupabase()
       .from('users')
       .select('id')
       .eq('id', sessionData.userId)
@@ -55,7 +55,7 @@ export async function getUserIdFromSession(): Promise<string> {
     if (!user) {
       const createdAt = new Date().toISOString();
       try {
-        const { error: insertErr } = await supabase
+        const { error: insertErr } = await getSupabase()
           .from('users')
           .insert({
             id: sessionData.userId,
@@ -78,14 +78,14 @@ export async function getUserIdFromSession(): Promise<string> {
           orderIndex: index + 1,
         }));
 
-        const { error: catErr } = await supabase
+        const { error: catErr } = await getSupabase()
           .from('categories')
           .insert(categoriesToInsert);
 
         if (catErr) throw catErr;
       } catch (insertErr) {
         // Double-check if user was created by another request in the meantime
-        const { data: checkAgain, error: checkErr } = await supabase
+        const { data: checkAgain, error: checkErr } = await getSupabase()
           .from('users')
           .select('id')
           .eq('id', sessionData.userId)

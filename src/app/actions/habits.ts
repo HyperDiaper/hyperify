@@ -1,7 +1,7 @@
 'use server';
 
 import { getUserIdFromSession } from '@/lib/sqlite';
-import { supabase } from '@/lib/supabase';
+import { getSupabase } from '@/lib/supabase';
 import { Habit } from '@/types';
 import { calculateStreak } from '@/lib/utils';
 import crypto from 'crypto';
@@ -10,7 +10,7 @@ export async function getHabitsAction(): Promise<any[]> {
   const userId = await getUserIdFromSession();
 
   try {
-    const { data: rows, error } = await supabase
+    const { data: rows, error } = await getSupabase()
       .from('habits')
       .select('*')
       .eq('userId', userId)
@@ -47,7 +47,7 @@ export async function addHabitAction(
 
   try {
     // Get max order
-    const { data: maxRow, error: maxErr } = await supabase
+    const { data: maxRow, error: maxErr } = await getSupabase()
       .from('habits')
       .select('orderIndex')
       .eq('userId', userId)
@@ -61,7 +61,7 @@ export async function addHabitAction(
     // Validate category existence
     let verifiedCategory: string | null = null;
     if (habitData.category) {
-      const { data: exists } = await supabase
+      const { data: exists } = await getSupabase()
         .from('categories')
         .select('id')
         .eq('id', habitData.category)
@@ -73,7 +73,7 @@ export async function addHabitAction(
     }
 
     // 1. Insert habit
-    const { error: insertErr } = await supabase
+    const { error: insertErr } = await getSupabase()
       .from('habits')
       .insert({
         id: habitId,
@@ -93,7 +93,7 @@ export async function addHabitAction(
     if (insertErr) throw insertErr;
 
     // 2. Initialize blank streak
-    const { error: streakErr } = await supabase
+    const { error: streakErr } = await getSupabase()
       .from('streaks')
       .insert({
         habitId,
@@ -121,7 +121,7 @@ export async function updateHabitAction(habitId: string, updates: Partial<Habit>
 
   try {
     // Fetch current habit
-    const { data: current, error: findErr } = await supabase
+    const { data: current, error: findErr } = await getSupabase()
       .from('habits')
       .select('*')
       .eq('id', habitId)
@@ -141,7 +141,7 @@ export async function updateHabitAction(habitId: string, updates: Partial<Habit>
     if (updates.category !== undefined) {
       let verifiedCategory: string | null = null;
       if (updates.category) {
-        const { data: exists } = await supabase
+        const { data: exists } = await getSupabase()
           .from('categories')
           .select('id')
           .eq('id', updates.category)
@@ -161,7 +161,7 @@ export async function updateHabitAction(habitId: string, updates: Partial<Habit>
     if (updates.order !== undefined) supabaseUpdates.orderIndex = updates.order;
 
     if (Object.keys(supabaseUpdates).length > 0) {
-      const { error: updateErr } = await supabase
+      const { error: updateErr } = await getSupabase()
         .from('habits')
         .update(supabaseUpdates)
         .eq('id', habitId)
@@ -176,7 +176,7 @@ export async function updateHabitAction(habitId: string, updates: Partial<Habit>
       const targetValue = updates.target !== undefined ? updates.target : current.target;
 
       // Get completions
-      const { data: compRows, error: compErr } = await supabase
+      const { data: compRows, error: compErr } = await getSupabase()
         .from('completions')
         .select('date, completed, value, duration, timestamp')
         .eq('habitId', habitId)
@@ -198,7 +198,7 @@ export async function updateHabitAction(habitId: string, updates: Partial<Habit>
 
       const streakData = calculateStreak(completions, habitType, targetValue);
 
-      const { error: streakErr } = await supabase
+      const { error: streakErr } = await getSupabase()
         .from('streaks')
         .update({
           currentStreak: streakData.currentStreak,
@@ -224,7 +224,7 @@ export async function deleteHabitAction(habitId: string): Promise<void> {
   const userId = await getUserIdFromSession();
 
   try {
-    const { error } = await supabase
+    const { error } = await getSupabase()
       .from('habits')
       .delete()
       .eq('id', habitId)

@@ -3,7 +3,7 @@
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
 import { DEFAULT_CATEGORIES, decryptSession, getUserIdFromSession } from '@/lib/sqlite';
-import { supabase } from '@/lib/supabase';
+import { getSupabase } from '@/lib/supabase';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'hyperify-local-secret-key-32-chars-long-or-more';
 
@@ -50,7 +50,7 @@ export async function getCurrentUserAction() {
   if (!sessionData) return null;
 
   try {
-    let { data: user, error } = await supabase
+    let { data: user, error } = await getSupabase()
       .from('users')
       .select('id, email, displayName, createdAt, accent')
       .eq('id', sessionData.userId)
@@ -62,7 +62,7 @@ export async function getCurrentUserAction() {
     if (!user) {
       const createdAt = new Date().toISOString();
       try {
-        const { error: insertErr } = await supabase
+        const { error: insertErr } = await getSupabase()
           .from('users')
           .insert({
             id: sessionData.userId,
@@ -85,7 +85,7 @@ export async function getCurrentUserAction() {
           orderIndex: index + 1,
         }));
 
-        const { error: catErr } = await supabase
+        const { error: catErr } = await getSupabase()
           .from('categories')
           .insert(categoriesToInsert);
 
@@ -100,7 +100,7 @@ export async function getCurrentUserAction() {
         };
       } catch (insertErr) {
         console.warn('Concurrent user auto-reconstruction handled:', insertErr);
-        const { data: checkAgain, error: checkErr } = await supabase
+        const { data: checkAgain, error: checkErr } = await getSupabase()
           .from('users')
           .select('id, email, displayName, createdAt, accent')
           .eq('id', sessionData.userId)
@@ -128,7 +128,7 @@ export async function getCurrentUserAction() {
 export async function signUpAction(email: string, password: string, displayName: string) {
   try {
     // Check if user exists
-    const { data: existing, error: findErr } = await supabase
+    const { data: existing, error: findErr } = await getSupabase()
       .from('users')
       .select('id')
       .eq('email', email)
@@ -144,7 +144,7 @@ export async function signUpAction(email: string, password: string, displayName:
     const createdAt = new Date().toISOString();
 
     // Insert user
-    const { error: insertErr } = await supabase
+    const { error: insertErr } = await getSupabase()
       .from('users')
       .insert({
         id: userId,
@@ -167,7 +167,7 @@ export async function signUpAction(email: string, password: string, displayName:
       orderIndex: index + 1,
     }));
 
-    const { error: catErr } = await supabase
+    const { error: catErr } = await getSupabase()
       .from('categories')
       .insert(categoriesToInsert);
 
@@ -203,7 +203,7 @@ export async function signUpAction(email: string, password: string, displayName:
 
 export async function signInAction(email: string, password: string) {
   try {
-    const { data: user, error: findErr } = await supabase
+    const { data: user, error: findErr } = await getSupabase()
       .from('users')
       .select('*')
       .eq('email', email)
@@ -257,7 +257,7 @@ export async function signOutAction() {
 
 export async function updateUserAccentAction(accent: string): Promise<void> {
   const userId = await getUserIdFromSession();
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('users')
     .update({ accent })
     .eq('id', userId);

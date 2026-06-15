@@ -1,7 +1,7 @@
 'use server';
 
 import { getUserIdFromSession } from '@/lib/sqlite';
-import { supabase } from '@/lib/supabase';
+import { getSupabase } from '@/lib/supabase';
 import { Completion, StreakData, HabitType } from '@/types';
 import { calculateStreak } from '@/lib/utils';
 
@@ -9,7 +9,7 @@ export async function getCompletionsAction(habitId: string): Promise<any[]> {
   const userId = await getUserIdFromSession();
 
   try {
-    const { data: rows, error } = await supabase
+    const { data: rows, error } = await getSupabase()
       .from('completions')
       .select('date, completed, value, duration, timestamp')
       .eq('habitId', habitId)
@@ -34,7 +34,7 @@ export async function getStreaksAction(): Promise<Record<string, StreakData>> {
   const userId = await getUserIdFromSession();
 
   try {
-    const { data: rows, error } = await supabase
+    const { data: rows, error } = await getSupabase()
       .from('streaks')
       .select('habitId, currentStreak, longestStreak, lastCompletedDate, graceDaysEarned, graceDaysUsed, freezeAvailable, completionRate')
       .eq('userId', userId);
@@ -75,7 +75,7 @@ export async function saveCompletionAction(
 
   try {
     // Validate habit existence
-    const { data: habitExists, error: findErr } = await supabase
+    const { data: habitExists, error: findErr } = await getSupabase()
       .from('habits')
       .select('id')
       .eq('id', habitId)
@@ -89,7 +89,7 @@ export async function saveCompletionAction(
 
     // 1. Delete/insert completion row
     if (!completed) {
-      const { error: deleteErr } = await supabase
+      const { error: deleteErr } = await getSupabase()
         .from('completions')
         .delete()
         .eq('userId', userId)
@@ -98,7 +98,7 @@ export async function saveCompletionAction(
 
       if (deleteErr) throw deleteErr;
     } else {
-      const { error: upsertErr } = await supabase
+      const { error: upsertErr } = await getSupabase()
         .from('completions')
         .upsert({
           userId,
@@ -114,7 +114,7 @@ export async function saveCompletionAction(
     }
 
     // 2. Fetch all completions for streak calculation
-    const { data: compRows, error: compErr } = await supabase
+    const { data: compRows, error: compErr } = await getSupabase()
       .from('completions')
       .select('date, completed, value, duration')
       .eq('habitId', habitId)
@@ -138,7 +138,7 @@ export async function saveCompletionAction(
     const streakData = calculateStreak(completions, habitType, targetValue);
 
     // 4. Update streak table
-    const { error: streakErr } = await supabase
+    const { error: streakErr } = await getSupabase()
       .from('streaks')
       .update({
         currentStreak: streakData.currentStreak,
@@ -163,7 +163,7 @@ export async function getTodayCompletionsAction(dateStr: string): Promise<Record
   const userId = await getUserIdFromSession();
 
   try {
-    const { data: rows, error } = await supabase
+    const { data: rows, error } = await getSupabase()
       .from('completions')
       .select('habitId, completed')
       .eq('userId', userId)
@@ -186,7 +186,7 @@ export async function getAllCompletionsAction(): Promise<Record<string, Completi
   const userId = await getUserIdFromSession();
 
   try {
-    const { data: rows, error } = await supabase
+    const { data: rows, error } = await getSupabase()
       .from('completions')
       .select('habitId, date, completed, value, duration, timestamp')
       .eq('userId', userId);

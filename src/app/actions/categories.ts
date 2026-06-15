@@ -1,7 +1,7 @@
 'use server';
 
 import { getUserIdFromSession } from '@/lib/sqlite';
-import { supabase } from '@/lib/supabase';
+import { getSupabase } from '@/lib/supabase';
 import { Category } from '@/types';
 import crypto from 'crypto';
 
@@ -9,7 +9,7 @@ export async function getCategoriesAction(): Promise<Category[]> {
   const userId = await getUserIdFromSession();
   
   try {
-    const { data: rows, error } = await supabase
+    const { data: rows, error } = await getSupabase()
       .from('categories')
       .select('id, name, color, icon, orderIndex')
       .eq('userId', userId)
@@ -36,7 +36,7 @@ export async function addCategoryAction(categoryData: Omit<Category, 'id' | 'ord
 
   try {
     // Get max order
-    const { data: maxRow, error: maxErr } = await supabase
+    const { data: maxRow, error: maxErr } = await getSupabase()
       .from('categories')
       .select('orderIndex')
       .eq('userId', userId)
@@ -47,7 +47,7 @@ export async function addCategoryAction(categoryData: Omit<Category, 'id' | 'ord
     if (maxErr) throw maxErr;
     const nextOrder = (maxRow?.orderIndex || 0) + 1;
 
-    const { error: insertErr } = await supabase
+    const { error: insertErr } = await getSupabase()
       .from('categories')
       .insert({
         id: catId,
@@ -72,7 +72,7 @@ export async function deleteCategoryAction(categoryId: string): Promise<void> {
 
   try {
     // 1. Find remaining categories (excluding the one being deleted)
-    const { data: remaining, error: findErr } = await supabase
+    const { data: remaining, error: findErr } = await getSupabase()
       .from('categories')
       .select('id')
       .eq('userId', userId)
@@ -87,7 +87,7 @@ export async function deleteCategoryAction(categoryId: string): Promise<void> {
     } else {
       // If no categories left, create a default health category
       fallbackCatId = `health-${userId}`;
-      const { error: insertErr } = await supabase
+      const { error: insertErr } = await getSupabase()
         .from('categories')
         .insert({
           id: fallbackCatId,
@@ -101,7 +101,7 @@ export async function deleteCategoryAction(categoryId: string): Promise<void> {
     }
 
     // 2. Update all habits using this category to the fallback
-    const { error: updateErr } = await supabase
+    const { error: updateErr } = await getSupabase()
       .from('habits')
       .update({ category: fallbackCatId })
       .eq('category', categoryId)
@@ -110,7 +110,7 @@ export async function deleteCategoryAction(categoryId: string): Promise<void> {
     if (updateErr) throw updateErr;
 
     // 3. Delete the category
-    const { error: deleteErr } = await supabase
+    const { error: deleteErr } = await getSupabase()
       .from('categories')
       .delete()
       .eq('id', categoryId)

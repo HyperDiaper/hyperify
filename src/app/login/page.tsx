@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import GradientButton from '@/components/ui/GradientButton';
-import { Flame, Mail, Lock, User, Eye, EyeOff, Globe } from 'lucide-react';
+import { Flame, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
@@ -60,19 +60,7 @@ export default function LoginPage() {
     }
   };
 
-  const handleGoogleAuth = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      await auth.signInWithGoogle();
-      router.push('/');
-    } catch (err: unknown) {
-      const firebaseError = err as { message?: string };
-      setError(firebaseError.message || 'Google sign-in failed');
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden">
@@ -121,22 +109,7 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {/* Google sign-in */}
-          <button
-            onClick={handleGoogleAuth}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl bg-dark-800/80 border border-white/[0.04] text-gray-200 font-bold hover:border-white/[0.1] hover:bg-dark-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed mb-6"
-          >
-            <Globe className="w-5 h-5 text-accent-lime" />
-            Continue with Google
-          </button>
 
-          {/* Divider */}
-          <div className="flex items-center gap-4 mb-6">
-            <div className="flex-1 h-px bg-white/[0.04]" />
-            <span className="text-xs text-dark-500 uppercase font-bold tracking-wider">or</span>
-            <div className="flex-1 h-px bg-white/[0.04]" />
-          </div>
 
           {/* Email form */}
           <form onSubmit={handleEmailAuth} className="space-y-4">

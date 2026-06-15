@@ -5,17 +5,35 @@ declare global {
   var sqliteDb: Database.Database | undefined;
 }
 
-const dbPath = path.join(process.cwd(), 'hyperify.db');
+function getDbConnection(): Database.Database {
+  let dbPath = path.join(process.cwd(), 'hyperify.db');
+
+  // Serverless checks (Netlify, Vercel, AWS Lambda)
+  if (
+    process.env.NETLIFY ||
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT
+  ) {
+    dbPath = '/tmp/hyperify.db';
+  }
+
+  try {
+    const database = new Database(dbPath);
+    database.pragma('foreign_keys = ON');
+    return database;
+  } catch (err) {
+    console.error('Failed to open SQLite database:', err);
+    throw err;
+  }
+}
 
 // Reuse existing connection in dev HMR to avoid locking the sqlite file
-export const db = globalThis.sqliteDb ?? new Database(dbPath);
+export const db = globalThis.sqliteDb ?? getDbConnection();
 
 if (process.env.NODE_ENV !== 'production') {
   globalThis.sqliteDb = db;
 }
-
-// Enable foreign keys
-db.pragma('foreign_keys = ON');
 
 import { Category } from '@/types';
 

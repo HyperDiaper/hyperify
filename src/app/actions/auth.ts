@@ -76,76 +76,92 @@ export async function getCurrentUserAction() {
 }
 
 export async function signUpAction(email: string, password: string, displayName: string) {
-  // Check if user exists
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-  if (existing) {
-    throw new Error('Email already in use');
-  }
+  try {
+    // Check if user exists
+    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (existing) {
+      return { success: false, error: 'Email already in use' };
+    }
 
-  const userId = `user-${crypto.randomUUID()}`;
-  const passwordHash = hashPassword(password);
-  const createdAt = new Date().toISOString();
+    const userId = `user-${crypto.randomUUID()}`;
+    const passwordHash = hashPassword(password);
+    const createdAt = new Date().toISOString();
 
-  // Insert user
-  db.prepare(
-    'INSERT INTO users (id, email, displayName, passwordHash, createdAt) VALUES (?, ?, ?, ?, ?)'
-  ).run(userId, email, displayName, passwordHash, createdAt);
+    // Insert user
+    db.prepare(
+      'INSERT INTO users (id, email, displayName, passwordHash, createdAt) VALUES (?, ?, ?, ?, ?)'
+    ).run(userId, email, displayName, passwordHash, createdAt);
 
-  // Seed default categories
-  const insertCategory = db.prepare(
-    'INSERT INTO categories (id, userId, name, color, icon, orderIndex) VALUES (?, ?, ?, ?, ?, ?)'
-  );
+    // Seed default categories
+    const insertCategory = db.prepare(
+      'INSERT INTO categories (id, userId, name, color, icon, orderIndex) VALUES (?, ?, ?, ?, ?, ?)'
+    );
 
-  db.transaction(() => {
-    DEFAULT_CATEGORIES.forEach((cat, index) => {
-      insertCategory.run(cat.id + '-' + userId, userId, cat.name, cat.color, cat.icon || '', index + 1);
+    db.transaction(() => {
+      DEFAULT_CATEGORIES.forEach((cat, index) => {
+        insertCategory.run(cat.id + '-' + userId, userId, cat.name, cat.color, cat.icon || '', index + 1);
+      });
+    })();
+
+    // Set session cookie
+    const session = encryptSession(userId);
+    const cookieStore = await cookies();
+    cookieStore.set('hyperify_session', session, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 30, // 30 days
     });
-  })();
 
-  // Set session cookie
-  const session = encryptSession(userId);
-  const cookieStore = await cookies();
-  cookieStore.set('hyperify_session', session, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 30, // 30 days
-  });
-
-  return {
-    uid: userId,
-    email,
-    displayName,
-    photoURL: null,
-    createdAt,
-  };
+    return {
+      success: true,
+      user: {
+        uid: userId,
+        email,
+        displayName,
+        photoURL: null,
+        createdAt,
+      },
+    };
+  } catch (err: any) {
+    console.error('Sign up error:', err);
+    return { success: false, error: err.message || 'An error occurred during registration' };
+  }
 }
 
 export async function signInAction(email: string, password: string) {
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
-  if (!user || !verifyPassword(password, user.passwordHash)) {
-    throw new Error('Invalid email or password');
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+    if (!user || !verifyPassword(password, user.passwordHash)) {
+      return { success: false, error: 'Invalid email or password' };
+    }
+
+    // Set session cookie
+    const session = encryptSession(user.id);
+    const cookieStore = await cookies();
+    cookieStore.set('hyperify_session', session, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+    });
+
+    return {
+      success: true,
+      user: {
+        uid: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: null,
+        createdAt: user.createdAt,
+      },
+    };
+  } catch (err: any) {
+    console.error('Sign in error:', err);
+    return { success: false, error: err.message || 'An error occurred during authentication' };
   }
-
-  // Set session cookie
-  const session = encryptSession(user.id);
-  const cookieStore = await cookies();
-  cookieStore.set('hyperify_session', session, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 30, // 30 days
-  });
-
-  return {
-    uid: user.id,
-    email: user.email,
-    displayName: user.displayName,
-    photoURL: null,
-    createdAt: user.createdAt,
-  };
 }
 
 export async function signOutAction() {

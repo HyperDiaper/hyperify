@@ -77,10 +77,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithEmail = async (email: string, password: string) => {
     setLoading(true);
     try {
-      const loggedUser = await signInAction(email, password);
-      setUser(loggedUser);
+      const res = await signInAction(email, password);
+      if (!res.success) {
+        throw new Error(res.error);
+      }
+      setUser(res.user);
       window.dispatchEvent(new Event('database-update'));
-      return loggedUser;
+      return res.user;
     } catch (err) {
       console.error('Sign-in failed:', err);
       throw err;
@@ -92,10 +95,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUpWithEmail = async (email: string, password: string, displayName: string) => {
     setLoading(true);
     try {
-      const newUser = await signUpAction(email, password, displayName);
-      setUser(newUser);
+      const res = await signUpAction(email, password, displayName);
+      if (!res.success) {
+        throw new Error(res.error);
+      }
+      setUser(res.user);
       window.dispatchEvent(new Event('database-update'));
-      return newUser;
+      return res.user;
     } catch (err) {
       console.error('Sign-up failed:', err);
       throw err;

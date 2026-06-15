@@ -75,8 +75,62 @@ export function useCompletions(
     if (!userId || !habitId || !habitType) {
       throw new Error('Missing parameters to toggle completion');
     }
-    await saveCompletionAction(habitId, habitType, targetValue, dateStr, completed, value, duration);
-    window.dispatchEvent(new Event('database-update'));
+
+    // Capture previous state for fallback rollback
+    const prevCompletions = [...completions];
+    const prevCompletionsMap = { ...completionsMap };
+
+    // Create optimistic completion object
+    const optimisticCompletion: Completion = {
+      date: dateStr,
+      completed,
+      value: value !== undefined ? value : (completed ? targetValue : undefined),
+      duration: duration,
+      timestamp: {
+        seconds: Math.floor(Date.now() / 1000),
+        nanoseconds: 0,
+        toDate: () => new Date(),
+      } as any,
+    };
+
+    // Update list state optimistically
+    let updatedList = completions.filter((c) => c.date !== dateStr);
+    if (completed) {
+      updatedList.push(optimisticCompletion);
+    }
+    
+    // Update map state optimistically
+    const updatedMap = { ...completionsMap };
+    if (completed) {
+      updatedMap[dateStr] = optimisticCompletion;
+    } else {
+      delete updatedMap[dateStr];
+    }
+
+    setCompletions(updatedList);
+    setCompletionsMap(updatedMap);
+
+    // Dispatch custom events for other dashboard widgets to update instantly
+    window.dispatchEvent(
+      new CustomEvent('habit-toggle-optimistic', {
+        detail: { habitId, completed },
+      })
+    );
+
+    // Save in background
+    try {
+      await saveCompletionAction(habitId, habitType, targetValue, dateStr, completed, value, duration);
+      window.dispatchEvent(new Event('database-update'));
+    } catch (err) {
+      console.error('Failed to save completion to SQLite database, rolling back:', err);
+      setCompletions(prevCompletions);
+      setCompletionsMap(prevCompletionsMap);
+      window.dispatchEvent(
+        new CustomEvent('habit-toggle-optimistic', {
+          detail: { habitId, completed: !completed }, // rollback dashboard stats
+        })
+      );
+    }
   };
 
   return {

@@ -41,14 +41,53 @@ export function useCategories(userId: string | null | undefined) {
     loading,
     addCategory: async (categoryData: Omit<Category, 'id' | 'order'>) => {
       if (!userId) throw new Error('User must be signed in to add categories');
-      const catId = await addCategoryAction(categoryData);
-      window.dispatchEvent(new Event('database-update'));
-      return catId;
+      
+      const tempId = `temp-cat-${Date.now()}`;
+      const optimisticCategory: Category = {
+        id: tempId,
+        name: categoryData.name,
+        color: categoryData.color,
+        icon: categoryData.icon,
+        order: categories.length + 1,
+      };
+
+      // Set state optimistically
+      setCategories((prev) => [...prev, optimisticCategory]);
+
+      // Run action in background
+      (async () => {
+        try {
+          const catId = await addCategoryAction(categoryData);
+          setCategories((prev) =>
+            prev.map((c) => (c.id === tempId ? { ...c, id: catId } : c))
+          );
+          window.dispatchEvent(new Event('database-update'));
+        } catch (err) {
+          console.error('Failed to add category, rolling back:', err);
+          setCategories((prev) => prev.filter((c) => c.id !== tempId));
+        }
+      })();
+
+      return tempId;
     },
     deleteCategory: async (categoryId: string) => {
       if (!userId) throw new Error('User must be signed in to delete categories');
-      await deleteCategoryAction(categoryId);
-      window.dispatchEvent(new Event('database-update'));
+      
+      const prevCategories = [...categories];
+
+      // Set state optimistically
+      setCategories((prev) => prev.filter((c) => c.id !== categoryId));
+
+      // Run action in background
+      (async () => {
+        try {
+          await deleteCategoryAction(categoryId);
+          window.dispatchEvent(new Event('database-update'));
+        } catch (err) {
+          console.error('Failed to delete category, rolling back:', err);
+          setCategories(prevCategories);
+        }
+      })();
     },
   };
 }

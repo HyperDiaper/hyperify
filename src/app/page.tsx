@@ -23,6 +23,7 @@ import {
   Zap,
 } from 'lucide-react';
 import * as Icons from 'lucide-react';
+import { syncWidgetData } from '@/lib/widgetSync';
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
@@ -72,8 +73,22 @@ export default function DashboardPage() {
 
     loadTodayCompletions();
 
+    const handleOptimisticToggle = (e: Event) => {
+      const customEvent = e as CustomEvent<{ habitId: string; completed: boolean }>;
+      if (customEvent.detail) {
+        setTodayCompletions((prev) => ({
+          ...prev,
+          [customEvent.detail.habitId]: customEvent.detail.completed,
+        }));
+      }
+    };
+
     window.addEventListener('database-update', loadTodayCompletions);
-    return () => window.removeEventListener('database-update', loadTodayCompletions);
+    window.addEventListener('habit-toggle-optimistic', handleOptimisticToggle);
+    return () => {
+      window.removeEventListener('database-update', loadTodayCompletions);
+      window.removeEventListener('habit-toggle-optimistic', handleOptimisticToggle);
+    };
   }, [user, habits, todayStr]);
 
   // Aggregate stats
@@ -112,6 +127,16 @@ export default function DashboardPage() {
       progressPercent,
     };
   }, [habits, todayCompletions, streaks]);
+
+  // Sync daily stats with Android widget
+  useEffect(() => {
+    syncWidgetData({
+      completed: stats.completedToday,
+      total: stats.total,
+      percent: stats.progressPercent,
+      streak: stats.activeStreaks,
+    });
+  }, [stats.completedToday, stats.total, stats.progressPercent, stats.activeStreaks]);
 
   // Filter and group habits by category
   const filteredGroupedHabits = useMemo(() => {

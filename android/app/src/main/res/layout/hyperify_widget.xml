@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp"
+    android:background="#0b0b0d">
+
+    <!-- Title / App Name -->
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Daily Progress"
+        android:textColor="#a3e635"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentStart="true" />
+
+    <!-- Streak Badge -->
+    <TextView
+        android:id="@+id/widget_streak"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🔥 0"
+        android:textColor="#f97316"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true" />
+
+    <!-- Progress Statistics -->
+    <TextView
+        android:id="@+id/widget_stats"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="0 / 0 Habits"
+        android:textColor="#717185"
+        android:textSize="12sp"
+        android:layout_above="@+id/widget_progress_bar"
+        android:layout_marginBottom="6dp" />
+
+    <!-- Progress Bar representing completion percent -->
+    <ProgressBar
+        android:id="@+id/widget_progress_bar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="8dp"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="#a3e635"
+        android:progressBackgroundTint="#26262f"
+        android:layout_alignParentBottom="true"
+        android:layout_marginBottom="4dp" />
+
+</RelativeLayout>

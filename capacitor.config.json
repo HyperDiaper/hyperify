@@ -1,0 +1,9 @@
+{
+  "appId": "com.hyperdiaper.hyperify",
+  "appName": "Hyperify",
+  "webDir": "public",
+  "server": {
+    "url": "https://hyperify.netlify.app",
+    "cleartext": true
+  }
+}

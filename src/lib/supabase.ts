@@ -5,19 +5,20 @@ let _supabase: SupabaseClient | null = null;
 export function getSupabase(): SupabaseClient {
   if (_supabase) return _supabase;
 
-  const url = process.env['NEXT_PUBLIC_SUPABASE_URL'] || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env['SUPABASE_SERVICE_ROLE_KEY'] || process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const anonKey = process.env['NEXT_PUBLIC_SUPABASE_ANON_KEY'] || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  // Prioritize server-only variables (which won't be inlined at build time by Next.js/Turbopack)
+  const url = process.env.SUPABASE_URL || process.env['NEXT_PUBLIC_SUPABASE_URL'] || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env['SUPABASE_SERVICE_ROLE_KEY'] || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env['NEXT_PUBLIC_SUPABASE_ANON_KEY'] || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const key = serviceKey || anonKey;
 
   if (!url || !key) {
     console.error(
       'Supabase env check →',
-      'URL:', url || 'MISSING',
+      'URL:', url ? 'SET' : 'MISSING',
       '| SERVICE_KEY:', serviceKey ? 'SET' : 'MISSING',
       '| ANON_KEY:', anonKey ? 'SET' : 'MISSING',
     );
-    throw new Error('Supabase credentials not configured. Check .env.local');
+    throw new Error('Supabase credentials not configured. Please add them to your Netlify Environment Variables.');
   }
 
   _supabase = createClient(url, key, {

@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithEmail = async (email: string, password: string) => {
     setLoading(true);
     try {
-      const res = await signInAction(email, password);
+      const res = await signInAction(email, password) as any;
       if (!res.success) {
         throw new Error(res.error);
       }
@@ -95,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUpWithEmail = async (email: string, password: string, displayName: string) => {
     setLoading(true);
     try {
-      const res = await signUpAction(email, password, displayName);
+      const res = await signUpAction(email, password, displayName) as any;
       if (!res.success) {
         throw new Error(res.error);
       }
